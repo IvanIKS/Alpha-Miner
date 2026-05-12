@@ -63,7 +63,7 @@ class BacktestResult(Base):
     dataset_name: Mapped[str] = mapped_column(String(255), nullable=False)
 
     # Text field to store JSON 
-    results: Mapped[str] = mapped_column(Text, nullable=False)
+    results: Mapped[str] = mapped_column(Text, nullable=True)
 
 
 class OHLCV(Base):

@@ -41,7 +41,7 @@ def load_historical_data(strategy : Strategy, start_date : datetime, end_date : 
 
 
 @shared_task(bind=True, name="backtest_celery")
-def backtest_task(self, strategy_name : str, strategy_dict : dict, start_date : datetime, end_date : datetime, money_amount : float):
+def backtest_task(self, strategy_name : str, strategy_dict : dict, start_date : datetime, end_date : datetime, money_amount : float, backtest_id : str):
     try:
         print("Starting backtest ...")
         strategy_class = STRATEGY_CLASSES[strategy_name]
@@ -57,25 +57,17 @@ def backtest_task(self, strategy_name : str, strategy_dict : dict, start_date : 
             'win_rate_percent': result.win_rate_percent,
         })
         with db_session() as db:
-            strategy_record = db.execute(
-                select(StrategyModel).where(StrategyModel.name == strategy_name)
+            backtest = db.execute(
+                select(BacktestResult).where(BacktestResult.id == backtest_id)
             ).scalar_one_or_none()
+            if backtest:
+                backtest.results = results_json
+                db.commit()
 
-            if not strategy_record:
-                print(f"Error: Strategy {strategy_name} not found in database.")
-                return
-
-            backtest = BacktestResult(
-                strategy_id=strategy_record.id,
-                dataset_name=f"{start_date.strftime('%Y%m%d')}_{end_date.strftime('%Y%m%d')}_{strategy_name}",
-                results=results_json,
-                test_time=datetime.now()
-
-            )
-            result_id = backtest.id
-            db.add(backtest)
-            print("Backtest results saved successfully.")
-            return {"status": "success", "backtest_id": result_id}
+                print("Backtest results saved successfully.")
+                return {"status": "success", "backtest_id": backtest_id}
+            else:
+                return {"status": "error", "message": f"Backtest ID not found{backtest_id}"}
 
     except GapsFoundError as e:
         wait_time = 0
@@ -86,5 +78,5 @@ def backtest_task(self, strategy_name : str, strategy_dict : dict, start_date : 
         raise self.retry(
             exc=e,
             countdown=wait_time,
-            max_retries=MAX_RECURSION_DEPTH
+            backtest_id=backtest_id
         )

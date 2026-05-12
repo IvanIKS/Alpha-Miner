@@ -1,8 +1,6 @@
 from datetime import datetime
 
-from app.background_tasks.tasks.backtest import backtest_task
 from app.backtest import backtest_service
-from app.backtest.BacktestEngine import BacktestEngine
 from app.strategies.implementation.RSIStrategy import RSIStrategy
 
 
