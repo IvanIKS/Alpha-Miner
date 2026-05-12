@@ -8,7 +8,7 @@ from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.backtest.BacktestEngine import BacktestEngine
+from app.backtest.engine import BacktestEngine
 from app.data.database.models import BacktestResult, Strategy
 from app.data.database.session import get_db
 from app.execution.runtime_registry import StrategyFactory

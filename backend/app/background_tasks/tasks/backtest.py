@@ -7,7 +7,7 @@ from sqlalchemy import select
 from app.data.database import BacktestResult
 from app.strategies.registry import STRATEGY_CLASSES
 
-from app.backtest.BacktestEngine import BacktestEngine
+from app.backtest.engine import BacktestEngine
 from app.data.data_provider import MarketDataProvider, GapsFoundError, OHLCVDataProvider
 from app.strategies.Strategy import Strategy
 from app.utils.timeframe import get_candles_left
@@ -50,12 +50,8 @@ def backtest_task(self, strategy_name : str, strategy_dict : dict, start_date : 
         engine = BacktestEngine()
         result = engine.run(strategy, data_provider, money_amount)
 
-        results_json = json.dumps({
-            'overall_profit_percent': result.overall_profit_percent,
-            'mean_monthly_profit_percent': result.mean_monthly_profit_percent,
-            'max_drawdown_percent': result.max_drawdown_percent,
-            'win_rate_percent': result.win_rate_percent,
-        })
+        results_json = result.to_json()
+
         with db_session() as db:
             backtest = db.execute(
                 select(BacktestResult).where(BacktestResult.id == backtest_id)
