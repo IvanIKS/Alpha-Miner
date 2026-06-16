@@ -1,10 +1,9 @@
-import json
+
 from datetime import datetime
 
-from celery import shared_task
+from celery import shared_task, group
 from sqlalchemy import select
 
-from app.data.database import BacktestResult
 from app.strategies.registry import STRATEGY_CLASSES
 
 from app.backtest.engine import BacktestEngine
@@ -61,7 +60,7 @@ def backtest_task(self, strategy_name : str, strategy_dict : dict, start_date : 
                 db.commit()
 
                 print("Backtest results saved successfully.")
-                return {"status": "success", "backtest_id": backtest_id}
+                return {"status": "success", "backtest_id": backtest_id, "backtest_results": results_json}
             else:
                 return {"status": "error", "message": f"Backtest ID not found{backtest_id}"}
 
@@ -76,3 +75,4 @@ def backtest_task(self, strategy_name : str, strategy_dict : dict, start_date : 
             countdown=wait_time,
             backtest_id=backtest_id
         )
+

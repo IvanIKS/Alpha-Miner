@@ -154,8 +154,7 @@ def find_gaps(
             :end_date,
             :timeframe,
             :exchange,
-            :symbol,
-            :check_right
+            :symbol
         )
     """)
 
@@ -164,8 +163,7 @@ def find_gaps(
             "end_date": end_date,
             "timeframe": timeframe,
             "exchange": exchange,
-            "symbol": symbol,
-            "check_right": check_right,
+            "symbol": symbol
         }).fetchall()
 
     return [(row[0], row[1]) for row in rows]

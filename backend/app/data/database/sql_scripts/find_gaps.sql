@@ -35,8 +35,7 @@ CREATE OR REPLACE FUNCTION find_ohlcv_gaps(
     p_end_date      TIMESTAMPTZ,
     p_timeframe     TEXT,            -- '1h', '1m', '1s', '1d', etc.
     p_exchange      TEXT,
-    p_symbol        TEXT,
-    p_check_right   BOOLEAN DEFAULT TRUE
+    p_symbol        TEXT
 )
 RETURNS SETOF gap_range
 LANGUAGE plpgsql STABLE
@@ -66,8 +65,7 @@ BEGIN
               AND timestamp >= p_start_date
               AND timestamp <= p_end_date
             ORDER BY timestamp
-        ),
-        p_check_right
+        )
     ) INTO v_raw_gaps;
 
     -- Merge adjacent/overlapping gaps
@@ -101,14 +99,11 @@ END;
 $$;
 
 
--- Recursive worker
--- Operates on sorted timestamp arrays instead of integer arrays
 CREATE OR REPLACE FUNCTION _find_gaps_recursive(
     p_start         TIMESTAMPTZ,
     p_end           TIMESTAMPTZ,
     p_interval      INTERVAL,
-    p_timestamps    TIMESTAMPTZ[],
-    p_check_right   BOOLEAN
+    p_timestamps    TIMESTAMPTZ[]
 )
 RETURNS gap_range[]
 LANGUAGE plpgsql STABLE
@@ -125,56 +120,30 @@ BEGIN
     v_expected_count := _count_intervals(p_start, p_end, p_interval);
     v_present_count  := COALESCE(array_length(p_timestamps, 1), 0);
 
-    -- Base case: invalid range
-    IF p_start > p_end THEN
-        RETURN ARRAY[]::gap_range[];
-    END IF;
-
-    -- Base case: single slot
-    IF v_expected_count <= 1 THEN
-        IF v_present_count = 0 THEN
-            RETURN ARRAY[ROW(p_start, p_end)::gap_range];
-        ELSE
-            RETURN ARRAY[]::gap_range[];
-        END IF;
-    END IF;
-
-    -- Base case: fully filled
+    -- Базовий випадок 1: всі дані на місці, дір немає
     IF v_present_count = v_expected_count THEN
         RETURN ARRAY[]::gap_range[];
     END IF;
 
-    -- Base case: completely empty
+    -- Базовий випадок 2: повністю порожній відрізок (усі дані пропущені)
     IF v_present_count = 0 THEN
         RETURN ARRAY[ROW(p_start, p_end)::gap_range];
     END IF;
 
-    -- Compute biased split point
-    IF p_check_right THEN
-        v_half_offset := v_expected_count - v_present_count;
-    ELSE
-        v_half_offset := v_present_count;
-    END IF;
-
-    -- Clamp: at least 1 step from start, at most (expected-1) steps from start
-    v_half_offset := GREATEST(1, LEAST(v_half_offset, v_expected_count - 1));
+    -- ВИПРАВЛЕНО: Ділимо навпіл кількість інтервалів, а не масиви
+    v_half_offset := FLOOR(v_expected_count / 2);
     v_half_ts     := p_start + (v_half_offset - 1) * p_interval;
 
-    -- Safety: if split didn't actually divide the range, fall back to midpoint
-    IF v_half_ts <= p_start THEN
-        v_half_ts := p_start + ((v_expected_count / 2) - 1) * p_interval;
-    END IF;
-    IF v_half_ts >= p_end THEN
-        v_half_ts := p_start + ((v_expected_count / 2) - 1) * p_interval;
-    END IF;
-
+    -- Бінарний пошук індексу розбиття масиву міток часу
     v_split_idx := _bisect_right(p_timestamps, v_half_ts);
 
+    -- Розрізаємо масив на ліву та праву частини
     v_left  := p_timestamps[1 : v_split_idx];
     v_right := p_timestamps[v_split_idx + 1 : array_length(p_timestamps, 1)];
 
-    RETURN _find_gaps_recursive(p_start, v_half_ts, p_interval, v_left,  NOT p_check_right)
-        || _find_gaps_recursive(v_half_ts + p_interval, p_end, p_interval, v_right, NOT p_check_right);
+    -- Рекурсивно шукаємо в обох половинках та об'єднуємо результати
+    RETURN _find_gaps_recursive(p_start, v_half_ts, p_interval, v_left)
+        || _find_gaps_recursive(v_half_ts + p_interval, p_end, p_interval, v_right);
 END;
 $$;
 

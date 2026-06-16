@@ -12,9 +12,9 @@ class TestBacktestEngine(unittest.TestCase):
         """Set up the test environment before each test runs."""
         self.engine = BacktestEngine()
         self.strategy = RSIStrategy(symbol="BTCUSDT", timeframe="1m")
-        
+
         # Your specific test data file
-        self.historical_data_file = r"/app/data\backtest_data\binance\backtest_data_btc_usdt_2026-02-01_00-00-00_2026-03-01_00-00-00_1m.csv"
+        self.historical_data_file = r"test\backtest_data_btc_usdt_2020-01-01_00-00-00_2020-06-01_00-00-00_1m.csv"
         
         self.initial_money = 1000.0
         self.money_symbol = 'USDT'
@@ -25,11 +25,12 @@ class TestBacktestEngine(unittest.TestCase):
         
         # Act
         try:
-            result = self.engine.run(
+            result = self.engine.run_from_file(
                 strategy=self.strategy,
                 historical_data_file=self.historical_data_file,
                 money_amount=self.initial_money,
-                money_symbol=self.money_symbol
+                money_symbol=self.money_symbol,
+                log_process=True
             )
 
             print(result)

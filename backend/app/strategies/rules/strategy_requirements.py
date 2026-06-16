@@ -28,7 +28,7 @@ class MustHaveColumns(DataRequirement):
 
 class MustBeBinanceOHLCVData(MustHaveColumns):
     def __init__(self):
-        super().__init__({'Open Time', 'Open', 'High', 'Low', 'Close', 'Volume'})
+        super().__init__({'open time', 'open', 'high', 'low', 'close', 'volume'})
 
 
         

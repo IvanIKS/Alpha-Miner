@@ -44,12 +44,12 @@ while since < end_time:
 
 # Create DataFrame
 df = pd.DataFrame(all_ohlcv, columns=[
-    'Open Time', 'Open', 'High', 'Low', 'Close', 'Volume'
+    'open time', 'open', 'high', 'low', 'close', 'volume'
 ])
 
 # Convert timestamp and types
 #df['Open Time'] = pd.to_datetime(df['Open Time'], unit='ms')
-for col in ['Open', 'High', 'Low', 'Close', 'Volume']:
+for col in ['open time', 'open', 'high', 'low', 'close', 'volume']:
     df[col] = df[col].astype(float)
 
 print(df.head(), "\n", df.tail())
