@@ -37,10 +37,20 @@ class Strategy:
             if name in skip:
                 continue
             default = p.default if p.default is not inspect.Parameter.empty else None
+            if isinstance(default, bool):
+                param_type = "bool"
+            elif isinstance(default, float):
+                param_type = "float"
+            elif isinstance(default, int):
+                param_type = "int"
+            elif isinstance(default, str):
+                param_type = "string"
+            else:
+                param_type = "string"
             params.append({
                 "key": name,
                 "label": name.replace('_', ' ').title(),
-                "type": "float" if isinstance(default, float) else "int",
+                "type": param_type,
                 "default": default,
             })
         return params

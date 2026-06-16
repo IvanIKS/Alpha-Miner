@@ -264,9 +264,9 @@ export function BacktestScreen() {
               <span className="field-label">Parameters</span>
               {isLoadingParameters ? (
                 <p className="field-help">Loading strategy parameters...</p>
-              ) : parameterSchema.length > 0 ? (
+              ) : parameterSchema.filter((p) => p.key !== 'symbol' && p.key !== 'exchange').length > 0 ? (
                 <StrategyParamsForm
-                  schema={parameterSchema}
+                  schema={parameterSchema.filter((p) => p.key !== 'symbol' && p.key !== 'exchange')}
                   values={parameterValues}
                   onChange={(key, value) => {
                     setParameterValues((currentValues) => ({
