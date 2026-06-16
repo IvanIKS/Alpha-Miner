@@ -201,3 +201,59 @@ def run_backtest(
         max_drawdown_percent=engine_result.max_drawdown_percent,
         win_rate_percent=engine_result.win_rate_percent,
     )
+
+
+run_router = APIRouter(prefix="/backtest", tags=["Backtests"])
+
+
+@run_router.post("", response_model=RunBacktestResponse, status_code=status.HTTP_201_CREATED)
+def run_backtest_v2(
+    strategy_id: int = Form(...),
+    money_amount: float = Form(0.0),
+    symbol: str = Form(''),
+    exchange: str = Form(''),
+    dataset_name: str | None = Form(None),
+    dataset_file: UploadFile = File(...),
+    parameters: str | None = Form(None),
+    db: Session = Depends(get_db),
+) -> RunBacktestResponse:
+    strategy_db = _require_strategy(db, strategy_id)
+
+    try:
+        runtime_strategy = _strategy_factory.create(strategy_db.name)
+    except ValueError as error:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(error))
+
+    engine = BacktestEngine()
+    engine_result = engine.run(runtime_strategy, dataset_file, money_amount, symbol or 'USDT')
+
+    label_parts = [p for p in [symbol, exchange, dataset_name or dataset_file.filename] if p]
+    resolved_dataset_name = '_'.join(label_parts) if label_parts else f"manual-{datetime.utcnow().isoformat()}"
+
+    results_json = json.dumps({
+        'overall_profit_percent': engine_result.overall_profit_percent,
+        'mean_monthly_profit_percent': engine_result.mean_monthly_profit_percent,
+        'max_drawdown_percent': engine_result.max_drawdown_percent,
+        'win_rate_percent': engine_result.win_rate_percent,
+    })
+
+    backtest = BacktestResult(
+        strategy_id=strategy_id,
+        dataset_name=resolved_dataset_name,
+        results=results_json,
+    )
+    db.add(backtest)
+    db.commit()
+    db.refresh(backtest)
+
+    return RunBacktestResponse(
+        id=backtest.id,
+        strategy_id=backtest.strategy_id,
+        strategy_name=strategy_db.name,
+        test_time=backtest.test_time,
+        dataset_name=backtest.dataset_name,
+        overall_profit_percent=engine_result.overall_profit_percent,
+        mean_monthly_profit_percent=engine_result.mean_monthly_profit_percent,
+        max_drawdown_percent=engine_result.max_drawdown_percent,
+        win_rate_percent=engine_result.win_rate_percent,
+    )

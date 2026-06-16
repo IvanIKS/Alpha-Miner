@@ -4,7 +4,7 @@ from fastapi import Depends, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.api.auth import require_auth, router as auth_router
-from app.api.backtests import router as backtests_router
+from app.api.backtests import router as backtests_router, run_router as backtest_run_router
 from app.api.bots import router as bots_router
 from app.api.strategies import router as strategies_router
 from app.api.users import router as users_router
@@ -37,6 +37,7 @@ app.include_router(strategies_router, dependencies=[Depends(require_auth)])
 app.include_router(users_router, dependencies=[Depends(require_auth)])
 app.include_router(bots_router, dependencies=[Depends(require_auth)])
 app.include_router(backtests_router, dependencies=[Depends(require_auth)])
+app.include_router(backtest_run_router, dependencies=[Depends(require_auth)])
 
 app.include_router(historical_data_router, dependencies=[Depends(require_auth)])
 

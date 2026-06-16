@@ -37,9 +37,9 @@ export type CreateOrUpdateBotInput = {
 
 export type BacktestRequest = {
   strategyId: number
-  strategyName?: string
   amount?: number
-  currency?: string
+  symbol?: string
+  exchange?: string
   datasetName?: string
   datasetFile: File
   parameters?: Record<string, unknown>
@@ -50,6 +50,15 @@ export type BacktestResult = {
   meanMonthlyProfitPercent: number
   maxDrawdownPercent: number
   winRatePercent: number
+}
+
+export type BacktestRecord = {
+  id: number
+  strategyId: number
+  strategyName: string
+  testTime: string
+  datasetName: string
+  results: string
 }
 
 type LoginResponse = {
@@ -199,6 +208,26 @@ export async function deleteBot(token: string, id: number): Promise<void> {
   await apiRequest<void>(`/bots/${id}`, { method: 'DELETE' }, token)
 }
 
+export async function fetchBacktests(token: string): Promise<BacktestRecord[]> {
+  type ApiRecord = {
+    id: number
+    strategy_id: number
+    strategy_name: string
+    test_time: string
+    dataset_name: string
+    results: string
+  }
+  const payload = await apiRequest<ApiRecord[]>('/backtests', { method: 'GET' }, token)
+  return payload.map((r) => ({
+    id: r.id,
+    strategyId: r.strategy_id,
+    strategyName: r.strategy_name,
+    testTime: r.test_time,
+    datasetName: r.dataset_name,
+    results: r.results,
+  }))
+}
+
 export async function runBacktest(token: string, request: BacktestRequest): Promise<BacktestResult> {
   type RunBacktestApiResponse = {
     id: number
@@ -215,7 +244,8 @@ export async function runBacktest(token: string, request: BacktestRequest): Prom
   const formData = new FormData()
   formData.append('strategy_id', String(request.strategyId))
   formData.append('money_amount', String(request.amount ?? 0))
-  formData.append('money_symbol', request.currency ?? 'USDT')
+  formData.append('symbol', request.symbol ?? '')
+  formData.append('exchange', request.exchange ?? '')
   if (request.datasetName && request.datasetName.trim().length > 0) {
     formData.append('dataset_name', request.datasetName.trim())
   }
@@ -225,7 +255,7 @@ export async function runBacktest(token: string, request: BacktestRequest): Prom
   formData.append('dataset_file', request.datasetFile)
 
   const payload = await apiRequest<RunBacktestApiResponse>(
-    '/backtests/run',
+    '/backtest',
     {
       method: 'POST',
       body: formData,

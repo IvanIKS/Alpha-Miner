@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { useAuth } from '../contexts/AuthContext'
-import type { BacktestResult, StrategyParameterSchema, StrategySummary } from '../services/api'
-import { fetchStrategies, fetchStrategyParameters, runBacktest } from '../services/api'
+import type { BacktestRecord, BacktestResult, StrategyParameterSchema, StrategySummary } from '../services/api'
+import { fetchBacktests, fetchStrategies, fetchStrategyParameters, runBacktest } from '../services/api'
 
 function getParameterDefaultValue(param: StrategyParameterSchema): unknown {
   if (param.options && param.options.length > 0) {
@@ -94,13 +94,16 @@ export function BacktestScreen() {
   const [parameterSchema, setParameterSchema] = useState<StrategyParameterSchema[]>([])
   const [parameterValues, setParameterValues] = useState<Record<string, unknown>>({})
   const [amount, setAmount] = useState('1000')
-  const [currency, setCurrency] = useState('USDT')
+  const [symbol, setSymbol] = useState('')
+  const [exchange, setExchange] = useState('')
   const [datasetFile, setDatasetFile] = useState<File | null>(null)
   const [stats, setStats] = useState<BacktestResult | null>(null)
   const [isRunning, setIsRunning] = useState(false)
   const [errorMessage, setErrorMessage] = useState('')
   const [parameterErrorMessage, setParameterErrorMessage] = useState('')
   const [isLoadingParameters, setIsLoadingParameters] = useState(false)
+  const [backtests, setBacktests] = useState<BacktestRecord[]>([])
+  const [isLoadingBacktests, setIsLoadingBacktests] = useState(false)
 
   useEffect(() => {
     if (!token) {
@@ -133,6 +136,21 @@ export function BacktestScreen() {
     return () => {
       isMounted = false
     }
+  }, [token])
+
+  const loadBacktests = (authToken: string) => {
+    setIsLoadingBacktests(true)
+    void fetchBacktests(authToken)
+      .then((data) => setBacktests(data))
+      .catch(() => {})
+      .finally(() => setIsLoadingBacktests(false))
+  }
+
+  useEffect(() => {
+    if (!token) {
+      return
+    }
+    loadBacktests(token)
   }, [token])
 
   useEffect(() => {
@@ -211,15 +229,16 @@ export function BacktestScreen() {
               setErrorMessage('')
               void runBacktest(token, {
                 strategyId: selectedStrategy.id,
-                strategyName: selectedStrategy.name,
                 amount: parsedAmount,
-                currency,
+                symbol,
+                exchange,
                 datasetName: datasetFile.name,
                 datasetFile,
                 parameters: parameterValues,
               })
                 .then((result) => {
                   setStats(result)
+                  loadBacktests(token)
                 })
                 .catch((error) => {
                   const message = error instanceof Error ? error.message : 'Backtest failed'
@@ -264,26 +283,36 @@ export function BacktestScreen() {
               {parameterErrorMessage ? <p className="field-help field-help--error">{parameterErrorMessage}</p> : null}
             </div>
 
-            <div className="field field--inline">
-              <div className="field field--flex">
-                <span className="field-label">Amount of money</span>
-                <input
-                  type="number"
-                  min={0}
-                  step="0.0001"
-                  value={amount}
-                  onChange={(event) => setAmount(event.target.value)}
-                />
-              </div>
-              <label className="field field--small">
-                <span className="field-label sr-only">Currency</span>
-                <select value={currency} onChange={(event) => setCurrency(event.target.value)}>
-                  <option value="USDT">USDT</option>
-                  <option value="USD">USD</option>
-                  <option value="BTC">BTC</option>
-                </select>
-              </label>
-            </div>
+            <label className="field">
+              <span className="field-label">Amount of money</span>
+              <input
+                type="number"
+                min={0}
+                step="0.0001"
+                value={amount}
+                onChange={(event) => setAmount(event.target.value)}
+              />
+            </label>
+
+            <label className="field">
+              <span className="field-label">Symbol</span>
+              <input
+                type="text"
+                placeholder="e.g. BTCUSDT"
+                value={symbol}
+                onChange={(event) => setSymbol(event.target.value.toUpperCase())}
+              />
+            </label>
+
+            <label className="field">
+              <span className="field-label">Exchange</span>
+              <input
+                type="text"
+                placeholder="e.g. Binance"
+                value={exchange}
+                onChange={(event) => setExchange(event.target.value)}
+              />
+            </label>
 
             <label className="field">
               <span className="field-label">Dataset</span>
@@ -352,6 +381,60 @@ export function BacktestScreen() {
               </p>
             </aside>
           </div>
+        </div>
+      </div>
+
+      <div className="card table-card" style={{ marginTop: '1.5rem' }}>
+        <h2 className="section-title">Previous backtests</h2>
+        <div className="table-wrapper" role="region" aria-label="Backtest history">
+          <table className="data-table">
+            <thead>
+              <tr>
+                <th scope="col">#</th>
+                <th scope="col">Strategy</th>
+                <th scope="col">Dataset</th>
+                <th scope="col">Date</th>
+                <th scope="col">Profit</th>
+                <th scope="col">Win rate</th>
+                <th scope="col">Sharpe</th>
+                <th scope="col">Drawdown</th>
+              </tr>
+            </thead>
+            <tbody>
+              {isLoadingBacktests ? (
+                <tr>
+                  <td colSpan={8} className="table-empty">Loading...</td>
+                </tr>
+              ) : backtests.length === 0 ? (
+                <tr>
+                  <td colSpan={8} className="table-empty">No backtests yet.</td>
+                </tr>
+              ) : (
+                backtests.map((bt) => {
+                  let parsed: Record<string, number> | null = null
+                  if (bt.results) {
+                    try {
+                      parsed = JSON.parse(bt.results) as Record<string, number>
+                    } catch {
+                      // ignore invalid JSON
+                    }
+                  }
+                  return (
+                    <tr key={bt.id}>
+                      <td>{bt.id}</td>
+                      <td>{bt.strategyName}</td>
+                      <td>{bt.datasetName}</td>
+                      <td>{new Date(bt.testTime).toLocaleString()}</td>
+                      <td>{parsed ? `${parsed.overall_profit_percent.toFixed(1)}%` : '—'}</td>
+                      <td>{parsed ? `${parsed.win_rate_percent.toFixed(0)}%` : '—'}</td>
+                      <td>{parsed ? parsed.sharpe_ratio.toFixed(2) : '—'}</td>
+                      <td>{parsed ? `${parsed.max_drawdown_percent.toFixed(1)}%` : '—'}</td>
+                    </tr>
+                  )
+                })
+              )}
+            </tbody>
+          </table>
         </div>
       </div>
     </section>
