@@ -40,8 +40,9 @@ export type BacktestRequest = {
   amount?: number
   symbol?: string
   exchange?: string
-  datasetName?: string
-  datasetFile: File
+  timeframe?: string
+  dateFrom: string
+  dateTo: string
   parameters?: Record<string, unknown>
 }
 
@@ -245,14 +246,13 @@ export async function runBacktest(token: string, request: BacktestRequest): Prom
   formData.append('strategy_id', String(request.strategyId))
   formData.append('money_amount', String(request.amount ?? 0))
   formData.append('symbol', request.symbol ?? '')
-  formData.append('exchange', request.exchange ?? '')
-  if (request.datasetName && request.datasetName.trim().length > 0) {
-    formData.append('dataset_name', request.datasetName.trim())
-  }
+  formData.append('exchange', request.exchange ?? 'binance')
+  formData.append('timeframe', request.timeframe ?? '1m')
+  formData.append('date_from', request.dateFrom)
+  formData.append('date_to', request.dateTo)
   if (request.parameters && Object.keys(request.parameters).length > 0) {
     formData.append('parameters', JSON.stringify(request.parameters))
   }
-  formData.append('dataset_file', request.datasetFile)
 
   const payload = await apiRequest<RunBacktestApiResponse>(
     '/backtest',

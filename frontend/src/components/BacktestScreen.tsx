@@ -96,7 +96,9 @@ export function BacktestScreen() {
   const [amount, setAmount] = useState('1000')
   const [symbol, setSymbol] = useState('')
   const [exchange, setExchange] = useState('')
-  const [datasetFile, setDatasetFile] = useState<File | null>(null)
+  const [dateFrom, setDateFrom] = useState('')
+  const [dateTo, setDateTo] = useState('')
+  const [timeframe, setTimeframe] = useState('1m')
   const [stats, setStats] = useState<BacktestResult | null>(null)
   const [isRunning, setIsRunning] = useState(false)
   const [errorMessage, setErrorMessage] = useState('')
@@ -172,8 +174,9 @@ export function BacktestScreen() {
           return
         }
 
-        setParameterSchema(schema)
-        setParameterValues(buildParameterValues(schema))
+        const filtered = schema.filter((p) => p.key !== 'symbol' && p.key !== 'exchange')
+        setParameterSchema(filtered)
+        setParameterValues(buildParameterValues(filtered))
       })
       .catch((error) => {
         if (!isMounted) {
@@ -219,8 +222,8 @@ export function BacktestScreen() {
                 setErrorMessage('Choose a strategy first')
                 return
               }
-              if (!datasetFile) {
-                setErrorMessage('Attach a dataset file first')
+              if (!dateFrom || !dateTo) {
+                setErrorMessage('Choose a date range first')
                 return
               }
 
@@ -232,8 +235,9 @@ export function BacktestScreen() {
                 amount: parsedAmount,
                 symbol,
                 exchange,
-                datasetName: datasetFile.name,
-                datasetFile,
+                timeframe,
+                dateFrom,
+                dateTo,
                 parameters: parameterValues,
               })
                 .then((result) => {
@@ -264,9 +268,9 @@ export function BacktestScreen() {
               <span className="field-label">Parameters</span>
               {isLoadingParameters ? (
                 <p className="field-help">Loading strategy parameters...</p>
-              ) : parameterSchema.filter((p) => p.key !== 'symbol' && p.key !== 'exchange').length > 0 ? (
+              ) : parameterSchema.length > 0 ? (
                 <StrategyParamsForm
-                  schema={parameterSchema.filter((p) => p.key !== 'symbol' && p.key !== 'exchange')}
+                  schema={parameterSchema}
                   values={parameterValues}
                   onChange={(key, value) => {
                     setParameterValues((currentValues) => ({
@@ -314,19 +318,35 @@ export function BacktestScreen() {
               />
             </label>
 
+            <div className="field field--inline">
+              <label className="field field--flex">
+                <span className="field-label">Date from</span>
+                <input
+                  type="date"
+                  value={dateFrom}
+                  onChange={(event) => setDateFrom(event.target.value)}
+                />
+              </label>
+              <label className="field field--flex">
+                <span className="field-label">Date to</span>
+                <input
+                  type="date"
+                  value={dateTo}
+                  onChange={(event) => setDateTo(event.target.value)}
+                />
+              </label>
+            </div>
+
             <label className="field">
-              <span className="field-label">Dataset</span>
-              <input
-                type="file"
-                accept=".csv,.json"
-                onChange={(event) => {
-                  const file = event.target.files?.[0]
-                  setDatasetFile(file ?? null)
-                }}
-              />
-              <p className="field-help">
-                {datasetFile ? `Selected: ${datasetFile.name}` : 'Choose a CSV or JSON file.'}
-              </p>
+              <span className="field-label">Timeframe</span>
+              <select value={timeframe} onChange={(event) => setTimeframe(event.target.value)}>
+                <option value="1m">1m</option>
+                <option value="5m">5m</option>
+                <option value="15m">15m</option>
+                <option value="1h">1h</option>
+                <option value="4h">4h</option>
+                <option value="1d">1d</option>
+              </select>
             </label>
 
             <button type="submit" className="primary-button" disabled={isRunning}>

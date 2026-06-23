@@ -9,6 +9,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.backtest.engine import BacktestEngine
+from app.data.data_provider import GapsFoundError, OHLCVDataProvider
 from app.data.database.models import BacktestResult, Strategy
 from app.data.database.session import get_db
 from app.execution.runtime_registry import StrategyFactory
@@ -210,10 +211,11 @@ run_router = APIRouter(prefix="/backtest", tags=["Backtests"])
 def run_backtest_v2(
     strategy_id: int = Form(...),
     money_amount: float = Form(0.0),
-    symbol: str = Form(''),
-    exchange: str = Form(''),
-    dataset_name: str | None = Form(None),
-    dataset_file: UploadFile = File(...),
+    symbol: str = Form('BTC/USDT'),
+    exchange: str = Form('binance'),
+    timeframe: str = Form('1m'),
+    date_from: str = Form(...),
+    date_to: str = Form(...),
     parameters: str | None = Form(None),
     db: Session = Depends(get_db),
 ) -> RunBacktestResponse:
@@ -224,22 +226,36 @@ def run_backtest_v2(
     except ValueError as error:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(error))
 
-    engine = BacktestEngine()
-    engine_result = engine.run(runtime_strategy, dataset_file, money_amount, symbol or 'USDT')
+    try:
+        start_dt = datetime.fromisoformat(date_from)
+        end_dt = datetime.fromisoformat(date_to)
+    except ValueError:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Invalid date format. Use YYYY-MM-DD.")
 
-    label_parts = [p for p in [symbol, exchange, dataset_name or dataset_file.filename] if p]
-    resolved_dataset_name = '_'.join(label_parts) if label_parts else f"manual-{datetime.utcnow().isoformat()}"
+    try:
+        data_provider = OHLCVDataProvider(runtime_strategy, start_dt, end_dt, exchange, symbol, timeframe)
+    except GapsFoundError:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Data not available for the selected range. Use the backfill endpoint to fetch it first.",
+        )
+
+    engine = BacktestEngine()
+    engine_result = engine.run(runtime_strategy, data_provider, money_amount)
+
+    dataset_name = f"{symbol}_{exchange}_{date_from}_{date_to}"
 
     results_json = json.dumps({
         'overall_profit_percent': engine_result.overall_profit_percent,
         'mean_monthly_profit_percent': engine_result.mean_monthly_profit_percent,
+        'sharpe_ratio': engine_result.sharpe_ratio,
         'max_drawdown_percent': engine_result.max_drawdown_percent,
         'win_rate_percent': engine_result.win_rate_percent,
     })
 
     backtest = BacktestResult(
         strategy_id=strategy_id,
-        dataset_name=resolved_dataset_name,
+        dataset_name=dataset_name,
         results=results_json,
     )
     db.add(backtest)
