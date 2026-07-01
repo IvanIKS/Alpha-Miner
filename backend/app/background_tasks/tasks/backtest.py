@@ -7,7 +7,7 @@ from sqlalchemy import select
 from app.strategies.registry import STRATEGY_CLASSES
 
 from app.backtest.engine import BacktestEngine
-from app.data.data_provider import MarketDataProvider, GapsFoundError, OHLCVDataProvider
+from app.data.data_provider import MarketDataProvider, GapsFoundError, OHLCVDataProvider, ShuffledOHLCVDataProvider
 from app.strategies.Strategy import Strategy
 from app.utils.timeframe import get_candles_left
 from app.data.database.models import Strategy as StrategyModel, BacktestResult
@@ -38,6 +38,22 @@ def load_historical_data(strategy : Strategy, start_date : datetime, end_date : 
         missing = required - schema_keys
         raise Exception(f"Strategy is missing required parameters: {missing}")
 
+def load_shuffled_data(strategy : Strategy, start_date : datetime, end_date : datetime) -> MarketDataProvider:
+    schema = strategy.get_parameters_schema()
+    schema_keys = {item['key'] for item in schema}
+
+    required = {'symbol', 'exchange', 'timeframe'}
+    has_required = required.issubset(schema_keys)
+
+    if has_required:
+        exchange = getattr(strategy, 'exchange')
+        symbol = getattr(strategy, 'symbol')
+        timeframe = getattr(strategy, 'timeframe')
+
+        return ShuffledOHLCVDataProvider(strategy, start_date, end_date, exchange, symbol, timeframe)
+    else:
+        missing = required - schema_keys
+        raise Exception(f"Strategy is missing required parameters: {missing}")
 
 @shared_task(bind=True, name="backtest_celery")
 def backtest_task(self, strategy_name : str, strategy_dict : dict, start_date : datetime, end_date : datetime, money_amount : float, backtest_id : str):
@@ -76,3 +92,25 @@ def backtest_task(self, strategy_name : str, strategy_dict : dict, start_date : 
             backtest_id=backtest_id
         )
 
+@shared_task(bind=True, name="shuffled_backtest_celery")
+def random_data_backtest(self, strategy_name : str, strategy_dict : dict, start_date : datetime, end_date : datetime, money_amount : float, backtest_id : str):
+    print("Starting random data backtest ...")
+    strategy_class = STRATEGY_CLASSES[strategy_name]
+    strategy = strategy_class(**strategy_dict)
+    data_provider = load_shuffled_data(strategy, start_date, end_date)
+    engine = BacktestEngine()
+    result = engine.run(strategy, data_provider, money_amount)
+    results_json = result.to_json()
+
+    with db_session() as db:
+        backtest = db.execute(
+            select(BacktestResult).where(BacktestResult.id == backtest_id)
+        ).scalar_one_or_none()
+        if backtest:
+            backtest.results = results_json
+            db.commit()
+
+            print("Backtest results saved successfully.")
+            return {"status": "success", "backtest_id": backtest_id, "backtest_results": results_json}
+        else:
+            return {"status": "error", "message": f"Backtest ID not found{backtest_id}"}

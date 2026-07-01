@@ -1,5 +1,6 @@
 from datetime import datetime
 from decimal import Decimal
+from random import shuffle
 from typing import Optional, Dict
 
 from asyncpg import cursor
@@ -94,3 +95,16 @@ class OHLCVDataProvider(MarketDataProvider):
 
     def __len__(self):
         return len(self.data)
+
+class ShuffledOHLCVDataProvider(OHLCVDataProvider):
+    def __init__(
+            self,
+            strategy: Strategy,
+            start_date: datetime,
+            end_date: datetime,
+            exchange: str,
+            symbol: str,
+            timeframe: str
+    ):
+        OHLCVDataProvider.__init__(self, strategy, start_date, end_date, exchange, symbol, timeframe)
+        shuffle(self.data)
