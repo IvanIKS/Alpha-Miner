@@ -9,6 +9,11 @@ services:
     environment:
       - DATABASE_URL=postgresql://postgres:postgres@db:5432/app
       - FASTAPI_ROOT_PATH=/api
+      - CELERY_BROKER_URL=redis://redis:6379/0
+      - CELERY_RESULT_BACKEND=redis://redis:6379/0
+    depends_on:
+        - db
+        - redis
     command: uvicorn main:app --host 0.0.0.0 --port 8000 --reload
   
   db:

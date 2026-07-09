@@ -93,7 +93,22 @@ def init_db() -> None:
 
     Base.metadata.create_all(bind=engine)
 
+    _migrate_backtest_results(engine)
+
     init_timescale_db(engine)
+
+
+def _migrate_backtest_results(eng: Engine) -> None:
+    with eng.begin() as conn:
+        for stmt in [
+            "ALTER TABLE backtest_results ADD COLUMN IF NOT EXISTS status VARCHAR(32) NOT NULL DEFAULT 'done'",
+            "ALTER TABLE backtest_results ADD COLUMN IF NOT EXISTS celery_task_id VARCHAR(255)",
+            "ALTER TABLE backtest_results ADD COLUMN IF NOT EXISTS equity_curve TEXT",
+        ]:
+            try:
+                conn.execute(text(stmt))
+            except Exception as exc:
+                print(f"Migration note: {exc}")
 
 def init_timescale_db(engine: Engine) -> None:
     with engine.begin() as connection:
@@ -145,7 +160,7 @@ def find_gaps(
     exchange: str,
     symbol: str,
     check_right: bool = True,
-) -> list[tuple[datetime, datetime]]:
+) -> set[tuple[datetime, datetime]]:
     """Call the find_ohlcv_gaps SQL function and return list of (gap_start, gap_end)."""
     query = text("""
         SELECT gap_start, gap_end
@@ -166,7 +181,7 @@ def find_gaps(
             "symbol": symbol
         }).fetchall()
 
-    return [(row[0], row[1]) for row in rows]
+    return set([(row[0], row[1]) for row in rows])
 
 def get_db() -> Iterator[Session]:
     db = SessionLocal()

@@ -1,7 +1,14 @@
-import { useEffect, useState } from 'react'
-import { useAuth } from '../contexts/AuthContext'
-import type { BacktestRecord, BacktestResult, StrategyParameterSchema, StrategySummary } from '../services/api'
-import { fetchBacktests, fetchStrategies, fetchStrategyParameters, runBacktest } from '../services/api'
+import { useEffect, useRef, useState, type SetStateAction} from 'react'
+import {useAuth} from '../contexts/AuthContext'
+import type {BacktestMetrics, BacktestRecord, StrategyParameterSchema, StrategySummary} from '../services/api'
+import {
+  fetchBacktestStatus,
+  fetchBacktests,
+  fetchEquityCurve,
+  fetchStrategies,
+  fetchStrategyParameters,
+  runBacktest,
+} from '../services/api'
 
 function getParameterDefaultValue(param: StrategyParameterSchema): unknown {
   if (param.options && param.options.length > 0) {
@@ -31,64 +38,124 @@ function buildParameterValues(schema: StrategyParameterSchema[]): Record<string,
 }
 
 function StrategyParamsForm({
-  schema,
-  values,
-  onChange,
-}: {
+                              schema,
+                              values,
+                              onChange,
+                            }: {
   schema: StrategyParameterSchema[]
   values: Record<string, unknown>
   onChange: (key: string, value: unknown) => void
 }) {
   return (
-    <>
-      {schema.map((param) => (
-        <label key={param.key} className="field">
-          <span className="field-label">{param.label}</span>
-          {param.type === 'bool' ? (
-            <input
-              type="checkbox"
-              checked={Boolean(values[param.key] ?? getParameterDefaultValue(param))}
-              onChange={(event) => onChange(param.key, event.target.checked)}
-            />
-          ) : param.options ? (
-            <select
-              value={String(values[param.key] ?? getParameterDefaultValue(param) ?? '')}
-              onChange={(event) => onChange(param.key, event.target.value)}
-            >
-              {param.options.map((option) => (
-                <option key={option} value={option}>
-                  {option}
-                </option>
-              ))}
-            </select>
-          ) : param.type === 'string' ? (
-            <input
-              type="text"
-              value={String(values[param.key] ?? getParameterDefaultValue(param) ?? '')}
-              onChange={(event) => onChange(param.key, event.target.value)}
-            />
-          ) : (
-            <input
-              type="number"
-              min={param.min ?? undefined}
-              max={param.max ?? undefined}
-              step={param.type === 'float' ? '0.01' : 1}
-              value={String(values[param.key] ?? getParameterDefaultValue(param) ?? '')}
-              onChange={(event) => {
-                const rawValue = event.target.value
-                const nextValue = param.type === 'int' ? Number.parseInt(rawValue, 10) : Number(rawValue)
-                onChange(param.key, Number.isNaN(nextValue) ? 0 : nextValue)
-              }}
-            />
-          )}
-        </label>
-      ))}
-    </>
+      <>
+        {schema.map((param) => (
+            <label key={param.key} className="field">
+              <span className="field-label">{param.label}</span>
+              {param.type === 'bool' ? (
+                  <input
+                      type="checkbox"
+                      checked={Boolean(values[param.key] ?? getParameterDefaultValue(param))}
+                      onChange={(event) => onChange(param.key, event.target.checked)}
+                  />
+              ) : param.options ? (
+                  <select
+                      value={String(values[param.key] ?? getParameterDefaultValue(param) ?? '')}
+                      onChange={(event) => onChange(param.key, event.target.value)}
+                  >
+                    {param.options.map((option) => (
+                        <option key={option} value={option}>
+                          {option}
+                        </option>
+                    ))}
+                  </select>
+              ) : param.type === 'string' ? (
+                  <input
+                      type="text"
+                      value={String(values[param.key] ?? getParameterDefaultValue(param) ?? '')}
+                      onChange={(event) => onChange(param.key, event.target.value)}
+                  />
+              ) : (
+                  <input
+                      type="number"
+                      min={param.min ?? undefined}
+                      max={param.max ?? undefined}
+                      step={param.type === 'float' ? '0.01' : 1}
+                      value={String(values[param.key] ?? getParameterDefaultValue(param) ?? '')}
+                      onChange={(event) => {
+                        const rawValue = event.target.value
+                        const nextValue = param.type === 'int' ? Number.parseInt(rawValue, 10) : Number(rawValue)
+                        onChange(param.key, Number.isNaN(nextValue) ? 0 : nextValue)
+                      }}
+                  />
+              )}
+            </label>
+        ))}
+      </>
   )
 }
 
+function EquityChart({data}: { data: number[] }) {
+  if (data.length < 2) {
+    return (
+        <div className="chart-placeholder" aria-label="Backtest equity chart">
+          <div className="chart-line"/>
+        </div>
+    )
+  }
+
+  const W = 800
+  const H = 220
+  const PAD = {top: 16, right: 16, bottom: 32, left: 60}
+  const innerW = W - PAD.left - PAD.right
+  const innerH = H - PAD.top - PAD.bottom
+
+  const min = Math.min(...data)
+  const max = Math.max(...data)
+  const range = max - min || 1
+
+  const toX = (i: number) => PAD.left + (i / (data.length - 1)) * innerW
+  const toY = (v: number) => PAD.top + (1 - (v - min) / range) * innerH
+
+  const pathD = data
+      .map((v, i) => `${i === 0 ? 'M' : 'L'}${toX(i).toFixed(1)},${toY(v).toFixed(1)}`)
+      .join(' ')
+
+  const areaD =
+      pathD +
+      ` L${toX(data.length - 1).toFixed(1)},${(PAD.top + innerH).toFixed(1)}` +
+      ` L${PAD.left.toFixed(1)},${(PAD.top + innerH).toFixed(1)} Z`
+
+  const isProfit = data[data.length - 1] >= data[0]
+  const color = isProfit ? '#22c55e' : '#ef4444'
+  const fillColor = isProfit ? 'rgba(34,197,94,0.12)' : 'rgba(239,68,68,0.12)'
+
+  const tickCount = 5
+  const yTicks = Array.from({length: tickCount}, (_, i) => {
+    const v = min + (range * i) / (tickCount - 1)
+    return {y: toY(v), label: v.toFixed(0)}
+  })
+
+  return (
+      <svg viewBox={`0 0 ${W} ${H}`} style={{width: '100%', height: '100%'}} aria-label="Equity curve chart">
+        {yTicks.map((t) => (
+            <g key={t.label}>
+              <line x1={PAD.left} y1={t.y} x2={PAD.left + innerW} y2={t.y} stroke="rgba(255,255,255,0.08)"
+                    strokeWidth="1"/>
+              <text x={PAD.left - 6} y={t.y + 4} textAnchor="end" fontSize="11" fill="rgba(255,255,255,0.45)">
+                {t.label}
+              </text>
+            </g>
+        ))}
+        <path d={areaD} fill={fillColor}/>
+        <path d={pathD} fill="none" stroke={color} strokeWidth="1.5" strokeLinejoin="round"/>
+      </svg>
+  )
+}
+
+const POLL_INTERVAL_MS = 2000
+
 export function BacktestScreen() {
-  const { token } = useAuth()
+  const {token} = useAuth()
   const [strategies, setStrategies] = useState<StrategySummary[]>([])
   const [strategyId, setStrategyId] = useState('')
   const [parameterSchema, setParameterSchema] = useState<StrategyParameterSchema[]>([])
@@ -99,13 +166,55 @@ export function BacktestScreen() {
   const [dateFrom, setDateFrom] = useState('')
   const [dateTo, setDateTo] = useState('')
   const [timeframe, setTimeframe] = useState('1m')
-  const [stats, setStats] = useState<BacktestResult | null>(null)
+  const [stats, setStats] = useState<BacktestMetrics | null>(null)
+  const [equityCurve, setEquityCurve] = useState<number[]>([])
   const [isRunning, setIsRunning] = useState(false)
+  const [taskStatus, setTaskStatus] = useState<string>('')
   const [errorMessage, setErrorMessage] = useState('')
   const [parameterErrorMessage, setParameterErrorMessage] = useState('')
   const [isLoadingParameters, setIsLoadingParameters] = useState(false)
   const [backtests, setBacktests] = useState<BacktestRecord[]>([])
   const [isLoadingBacktests, setIsLoadingBacktests] = useState(false)
+
+  const pollingRef = useRef<ReturnType<typeof setInterval> | null>(null)
+
+  const stopPolling = () => {
+    if (pollingRef.current !== null) {
+      clearInterval(pollingRef.current)
+      pollingRef.current = null
+    }
+  }
+
+  const startPolling = (authToken: string, backtestId: number) => {
+    stopPolling()
+    pollingRef.current = setInterval(() => {
+      void fetchBacktestStatus(authToken, backtestId)
+          .then(async (response: { status: SetStateAction<string>; result: any }) => {
+          setTaskStatus(response.status)
+          if (response.status === 'done') {
+            stopPolling()
+            setStats(response.result)
+            setIsRunning(false)
+            loadBacktests(authToken)
+            try {
+              const curve = await fetchEquityCurve(authToken, backtestId)
+              setEquityCurve(curve)
+            } catch {
+              // equity curve is optional
+            }
+          } else if (response.status === 'failed') {
+            stopPolling()
+            setErrorMessage('Backtest failed on the worker. Check data availability.')
+            setIsRunning(false)
+          }
+        })
+        .catch(() => {
+          // transient network error — keep polling
+        })
+    }, POLL_INTERVAL_MS)
+  }
+
+  useEffect(() => () => stopPolling(), [])
 
   useEffect(() => {
     if (!token) {
@@ -199,6 +308,13 @@ export function BacktestScreen() {
     }
   }, [token, strategyId])
 
+  const statusLabel: Record<string, string> = {
+    pending: 'Queued...',
+    running: 'Running...',
+    done: 'Done',
+    failed: 'Failed',
+  }
+
   return (
     <section aria-labelledby="backtest-heading" className="page">
       <h1 id="backtest-heading" className="page-title">
@@ -230,6 +346,9 @@ export function BacktestScreen() {
               const parsedAmount = Number(amount) || 0
               setIsRunning(true)
               setErrorMessage('')
+              setStats(null)
+              setEquityCurve([])
+              setTaskStatus('pending')
               void runBacktest(token, {
                 strategyId: selectedStrategy.id,
                 amount: parsedAmount,
@@ -240,16 +359,14 @@ export function BacktestScreen() {
                 dateTo,
                 parameters: parameterValues,
               })
-                .then((result) => {
-                  setStats(result)
-                  loadBacktests(token)
+                .then((job) => {
+                  startPolling(token, job.backtestId)
                 })
                 .catch((error) => {
                   const message = error instanceof Error ? error.message : 'Backtest failed'
                   setErrorMessage(message)
-                })
-                .finally(() => {
                   setIsRunning(false)
+                  setTaskStatus('')
                 })
             }}
           >
@@ -350,7 +467,7 @@ export function BacktestScreen() {
             </label>
 
             <button type="submit" className="primary-button" disabled={isRunning}>
-              {isRunning ? 'Running...' : 'Run backtest'}
+              {isRunning ? (statusLabel[taskStatus] ?? 'Running...') : 'Run backtest'}
             </button>
             {errorMessage ? <p className="field-help field-help--error">{errorMessage}</p> : null}
           </form>
@@ -359,9 +476,7 @@ export function BacktestScreen() {
         <div className="backtest-main">
           <div className="card backtest-chart-card">
             <h2 className="section-title">Equity curve</h2>
-            <div className="chart-placeholder" aria-label="Backtest equity chart">
-              <div className="chart-line" />
-            </div>
+            <EquityChart data={equityCurve} />
           </div>
 
           <div className="backtest-bottom">
@@ -390,14 +505,17 @@ export function BacktestScreen() {
                   <dt>Win rate</dt>
                   <dd>{stats ? `${stats.winRatePercent.toFixed(0)}%` : '—'}</dd>
                 </div>
+                <div>
+                  <dt>Sharpe ratio</dt>
+                  <dd>{stats ? stats.sharpeRatio.toFixed(2) : '—'}</dd>
+                </div>
               </dl>
             </div>
 
             <aside className="card backtest-notes-card">
               <h2 className="section-title">Additional info</h2>
               <p className="muted">
-                This screen is now connected to the backend API. The submitted run is persisted as a
-                backtest record and the summary is read from stored results.
+                Backtests run asynchronously via Celery. The equity curve and metrics are loaded once the worker completes.
               </p>
             </aside>
           </div>
@@ -414,6 +532,7 @@ export function BacktestScreen() {
                 <th scope="col">Strategy</th>
                 <th scope="col">Dataset</th>
                 <th scope="col">Date</th>
+                <th scope="col">Status</th>
                 <th scope="col">Profit</th>
                 <th scope="col">Win rate</th>
                 <th scope="col">Sharpe</th>
@@ -423,11 +542,11 @@ export function BacktestScreen() {
             <tbody>
               {isLoadingBacktests ? (
                 <tr>
-                  <td colSpan={8} className="table-empty">Loading...</td>
+                  <td colSpan={9} className="table-empty">Loading...</td>
                 </tr>
               ) : backtests.length === 0 ? (
                 <tr>
-                  <td colSpan={8} className="table-empty">No backtests yet.</td>
+                  <td colSpan={9} className="table-empty">No backtests yet.</td>
                 </tr>
               ) : (
                 backtests.map((bt) => {
@@ -445,6 +564,7 @@ export function BacktestScreen() {
                       <td>{bt.strategyName}</td>
                       <td>{bt.datasetName}</td>
                       <td>{new Date(bt.testTime).toLocaleString()}</td>
+                      <td>{bt.status ?? 'done'}</td>
                       <td>{parsed ? `${parsed.overall_profit_percent.toFixed(1)}%` : '—'}</td>
                       <td>{parsed ? `${parsed.win_rate_percent.toFixed(0)}%` : '—'}</td>
                       <td>{parsed ? parsed.sharpe_ratio.toFixed(2) : '—'}</td>
@@ -460,4 +580,3 @@ export function BacktestScreen() {
     </section>
   )
 }
-

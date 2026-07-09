@@ -62,8 +62,10 @@ class BacktestResult(Base):
     )
     dataset_name: Mapped[str] = mapped_column(String(255), nullable=False)
 
-    # Text field to store JSON 
-    results: Mapped[str] = mapped_column(Text, nullable=True)
+    results: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    status: Mapped[str] = mapped_column(String(32), nullable=False, server_default='done')
+    celery_task_id: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    equity_curve: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
 
 
 class OHLCV(Base):

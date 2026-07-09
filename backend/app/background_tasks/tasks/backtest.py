@@ -1,7 +1,8 @@
 
+import json
 from datetime import datetime
 
-from celery import shared_task, group
+from celery import shared_task
 from sqlalchemy import select
 
 from app.strategies.registry import STRATEGY_CLASSES
@@ -55,9 +56,28 @@ def load_shuffled_data(strategy : Strategy, start_date : datetime, end_date : da
         missing = required - schema_keys
         raise Exception(f"Strategy is missing required parameters: {missing}")
 
+
+def _downsample(data: list, max_points: int = 500) -> list:
+    if len(data) <= max_points:
+        return data
+    step = len(data) / max_points
+    return [data[int(i * step)] for i in range(max_points)]
+
+
+def _set_status(backtest_id, status: str) -> None:
+    with db_session() as db:
+        backtest = db.execute(
+            select(BacktestResult).where(BacktestResult.id == backtest_id)
+        ).scalar_one_or_none()
+        if backtest:
+            backtest.status = status
+            db.commit()
+
+
 @shared_task(bind=True, name="backtest_celery")
 def backtest_task(self, strategy_name : str, strategy_dict : dict, start_date : datetime, end_date : datetime, money_amount : float, backtest_id : str):
     try:
+        _set_status(backtest_id, 'running')
         print("Starting backtest ...")
         strategy_class = STRATEGY_CLASSES[strategy_name]
         strategy = strategy_class(**strategy_dict)
@@ -66,6 +86,7 @@ def backtest_task(self, strategy_name : str, strategy_dict : dict, start_date : 
         result = engine.run(strategy, data_provider, money_amount)
 
         results_json = result.to_json()
+        equity_json = json.dumps(_downsample(result.equity_curve))
 
         with db_session() as db:
             backtest = db.execute(
@@ -73,12 +94,14 @@ def backtest_task(self, strategy_name : str, strategy_dict : dict, start_date : 
             ).scalar_one_or_none()
             if backtest:
                 backtest.results = results_json
+                backtest.equity_curve = equity_json
+                backtest.status = 'done'
                 db.commit()
 
                 print("Backtest results saved successfully.")
                 return {"status": "success", "backtest_id": backtest_id, "backtest_results": results_json}
             else:
-                return {"status": "error", "message": f"Backtest ID not found{backtest_id}"}
+                return {"status": "error", "message": f"Backtest ID not found {backtest_id}"}
 
     except GapsFoundError as e:
         wait_time = 0
@@ -92,6 +115,11 @@ def backtest_task(self, strategy_name : str, strategy_dict : dict, start_date : 
             backtest_id=backtest_id
         )
 
+    except Exception as e:
+        _set_status(backtest_id, 'failed')
+        raise
+
+
 @shared_task(bind=True, name="shuffled_backtest_celery")
 def random_data_backtest(self, strategy_name : str, strategy_dict : dict, start_date : datetime, end_date : datetime, money_amount : float, backtest_id : str):
     print("Starting random data backtest ...")
@@ -101,6 +129,7 @@ def random_data_backtest(self, strategy_name : str, strategy_dict : dict, start_
     engine = BacktestEngine()
     result = engine.run(strategy, data_provider, money_amount)
     results_json = result.to_json()
+    equity_json = json.dumps(_downsample(result.equity_curve))
 
     with db_session() as db:
         backtest = db.execute(
@@ -108,9 +137,11 @@ def random_data_backtest(self, strategy_name : str, strategy_dict : dict, start_
         ).scalar_one_or_none()
         if backtest:
             backtest.results = results_json
+            backtest.equity_curve = equity_json
+            backtest.status = 'done'
             db.commit()
 
             print("Backtest results saved successfully.")
             return {"status": "success", "backtest_id": backtest_id, "backtest_results": results_json}
         else:
-            return {"status": "error", "message": f"Backtest ID not found{backtest_id}"}
+            return {"status": "error", "message": f"Backtest ID not found {backtest_id}"}

@@ -46,11 +46,23 @@ export type BacktestRequest = {
   parameters?: Record<string, unknown>
 }
 
-export type BacktestResult = {
+export type BacktestMetrics = {
   overallProfitPercent: number
   meanMonthlyProfitPercent: number
   maxDrawdownPercent: number
   winRatePercent: number
+  sharpeRatio: number
+}
+
+export type BacktestJobResponse = {
+  backtestId: number
+  status: 'pending' | 'running' | 'done' | 'failed'
+}
+
+export type BacktestStatusResponse = {
+  backtestId: number
+  status: 'pending' | 'running' | 'done' | 'failed'
+  result: BacktestMetrics | null
 }
 
 export type BacktestRecord = {
@@ -60,6 +72,7 @@ export type BacktestRecord = {
   testTime: string
   datasetName: string
   results: string
+  status?: string
 }
 
 type LoginResponse = {
@@ -217,6 +230,7 @@ export async function fetchBacktests(token: string): Promise<BacktestRecord[]> {
     test_time: string
     dataset_name: string
     results: string
+    status?: string
   }
   const payload = await apiRequest<ApiRecord[]>('/backtests', { method: 'GET' }, token)
   return payload.map((r) => ({
@@ -226,22 +240,11 @@ export async function fetchBacktests(token: string): Promise<BacktestRecord[]> {
     testTime: r.test_time,
     datasetName: r.dataset_name,
     results: r.results,
+    status: r.status,
   }))
 }
 
-export async function runBacktest(token: string, request: BacktestRequest): Promise<BacktestResult> {
-  type RunBacktestApiResponse = {
-    id: number
-    strategy_id: number
-    strategy_name: string
-    test_time: string
-    dataset_name: string
-    overall_profit_percent: number
-    mean_monthly_profit_percent: number
-    max_drawdown_percent: number
-    win_rate_percent: number
-  }
-
+export async function runBacktest(token: string, request: BacktestRequest): Promise<BacktestJobResponse> {
   const formData = new FormData()
   formData.append('strategy_id', String(request.strategyId))
   formData.append('money_amount', String(request.amount ?? 0))
@@ -254,19 +257,51 @@ export async function runBacktest(token: string, request: BacktestRequest): Prom
     formData.append('parameters', JSON.stringify(request.parameters))
   }
 
-  const payload = await apiRequest<RunBacktestApiResponse>(
+  const payload = await apiRequest<{ backtest_id: number; status: string }>(
     '/backtest',
-    {
-      method: 'POST',
-      body: formData,
-    },
+    { method: 'POST', body: formData },
     token,
   )
 
   return {
-    overallProfitPercent: Number(payload.overall_profit_percent),
-    meanMonthlyProfitPercent: Number(payload.mean_monthly_profit_percent),
-    maxDrawdownPercent: Number(payload.max_drawdown_percent),
-    winRatePercent: Number(payload.win_rate_percent),
+    backtestId: payload.backtest_id,
+    status: payload.status as BacktestJobResponse['status'],
   }
+}
+
+export async function fetchBacktestStatus(token: string, backtestId: number): Promise<BacktestStatusResponse> {
+  type ApiResponse = {
+    backtest_id: number
+    status: string
+    result: {
+      overall_profit_percent: number
+      mean_monthly_profit_percent: number
+      max_drawdown_percent: number
+      win_rate_percent: number
+      sharpe_ratio: number
+    } | null
+  }
+  const payload = await apiRequest<ApiResponse>(`/backtest/${backtestId}/status`, { method: 'GET' }, token)
+  return {
+    backtestId: payload.backtest_id,
+    status: payload.status as BacktestStatusResponse['status'],
+    result: payload.result
+      ? {
+          overallProfitPercent: payload.result.overall_profit_percent,
+          meanMonthlyProfitPercent: payload.result.mean_monthly_profit_percent,
+          maxDrawdownPercent: payload.result.max_drawdown_percent,
+          winRatePercent: payload.result.win_rate_percent,
+          sharpeRatio: payload.result.sharpe_ratio,
+        }
+      : null,
+  }
+}
+
+export async function fetchEquityCurve(token: string, backtestId: number): Promise<number[]> {
+  const payload = await apiRequest<{ equity_curve: number[] }>(
+    `/backtest/${backtestId}/equity-curve`,
+    { method: 'GET' },
+    token,
+  )
+  return payload.equity_curve
 }

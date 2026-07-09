@@ -6,7 +6,7 @@ from app.background_tasks.tasks.backfill import backfill_ohlcv_task
 
 def get_ohlcv_between_dates(start_date: datetime, end_date: datetime, exchange: str, symbol: str, timeframe: str):
     with db_session() as session:
-        gaps = find_gaps(session.connection(), start_date, end_date,  timeframe, exchange, symbol)
+        gaps = set(find_gaps(session.connection(), start_date, end_date,  timeframe, exchange, symbol))
         if len(gaps) > 0:
             for gap in gaps:
                 backfill_ohlcv_task.delay(

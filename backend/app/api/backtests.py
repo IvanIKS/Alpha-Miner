@@ -9,6 +9,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.backtest.engine import BacktestEngine
+from app.background_tasks.tasks.backtest import backtest_task
 from app.data.data_provider import GapsFoundError, OHLCVDataProvider
 from app.data.database.models import BacktestResult, Strategy
 from app.data.database.session import get_db
@@ -37,7 +38,8 @@ class BacktestResponse(BaseModel):
     strategy_name: str
     test_time: datetime
     dataset_name: str
-    results: str
+    results: str | None
+    status: str | None = None
 
 
 def _require_strategy(db: Session, strategy_id: int) -> Strategy:
@@ -56,6 +58,7 @@ def _to_response(backtest: BacktestResult, strategy_name: str) -> BacktestRespon
         test_time=backtest.test_time,
         dataset_name=backtest.dataset_name,
         results=backtest.results,
+        status=backtest.status,
     )
 
 
@@ -207,7 +210,18 @@ def run_backtest(
 run_router = APIRouter(prefix="/backtest", tags=["Backtests"])
 
 
-@run_router.post("", response_model=RunBacktestResponse, status_code=status.HTTP_201_CREATED)
+class BacktestJobResponse(BaseModel):
+    backtest_id: int
+    status: str
+
+
+class BacktestStatusResponse(BaseModel):
+    backtest_id: int
+    status: str
+    result: dict | None = None
+
+
+@run_router.post("", response_model=BacktestJobResponse, status_code=status.HTTP_202_ACCEPTED)
 def run_backtest_v2(
     strategy_id: int = Form(...),
     money_amount: float = Form(0.0),
@@ -218,13 +232,8 @@ def run_backtest_v2(
     date_to: str = Form(...),
     parameters: str | None = Form(None),
     db: Session = Depends(get_db),
-) -> RunBacktestResponse:
+) -> BacktestJobResponse:
     strategy_db = _require_strategy(db, strategy_id)
-
-    try:
-        runtime_strategy = _strategy_factory.create(strategy_db.name)
-    except ValueError as error:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(error))
 
     try:
         start_dt = datetime.fromisoformat(date_from)
@@ -232,44 +241,62 @@ def run_backtest_v2(
     except ValueError:
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Invalid date format. Use YYYY-MM-DD.")
 
-    try:
-        data_provider = OHLCVDataProvider(runtime_strategy, start_dt, end_dt, exchange, symbol, timeframe)
-    except GapsFoundError:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Data not available for the selected range. Use the backfill endpoint to fetch it first.",
-        )
+    strategy_params: dict = {}
+    if parameters:
+        try:
+            strategy_params = json.loads(parameters)
+        except json.JSONDecodeError:
+            raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Invalid parameters JSON.")
 
-    engine = BacktestEngine()
-    engine_result = engine.run(runtime_strategy, data_provider, money_amount)
-
+    strategy_dict = {**strategy_params, 'symbol': symbol, 'exchange': exchange.lower(), 'timeframe': timeframe}
     dataset_name = f"{symbol}_{exchange}_{date_from}_{date_to}"
-
-    results_json = json.dumps({
-        'overall_profit_percent': engine_result.overall_profit_percent,
-        'mean_monthly_profit_percent': engine_result.mean_monthly_profit_percent,
-        'sharpe_ratio': engine_result.sharpe_ratio,
-        'max_drawdown_percent': engine_result.max_drawdown_percent,
-        'win_rate_percent': engine_result.win_rate_percent,
-    })
 
     backtest = BacktestResult(
         strategy_id=strategy_id,
         dataset_name=dataset_name,
-        results=results_json,
+        results=None,
+        status='pending',
     )
     db.add(backtest)
     db.commit()
     db.refresh(backtest)
 
-    return RunBacktestResponse(
-        id=backtest.id,
-        strategy_id=backtest.strategy_id,
-        strategy_name=strategy_db.name,
-        test_time=backtest.test_time,
-        dataset_name=backtest.dataset_name,
-        overall_profit_percent=engine_result.overall_profit_percent,
-        mean_monthly_profit_percent=engine_result.mean_monthly_profit_percent,
-        max_drawdown_percent=engine_result.max_drawdown_percent,
-        win_rate_percent=engine_result.win_rate_percent,
+    task = backtest_task.delay(
+        strategy_db.name, strategy_dict, start_dt, end_dt, money_amount, backtest.id
     )
+    backtest.celery_task_id = task.id
+    db.commit()
+
+    return BacktestJobResponse(backtest_id=backtest.id, status='pending')
+
+
+@run_router.get("/{backtest_id}/status", response_model=BacktestStatusResponse)
+def get_backtest_status(backtest_id: int, db: Session = Depends(get_db)) -> BacktestStatusResponse:
+    backtest = db.get(BacktestResult, backtest_id)
+    if backtest is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Backtest not found")
+
+    result = None
+    if backtest.status == 'done' and backtest.results:
+        try:
+            result = json.loads(backtest.results)
+        except json.JSONDecodeError:
+            pass
+
+    return BacktestStatusResponse(backtest_id=backtest_id, status=backtest.status, result=result)
+
+
+@run_router.get("/{backtest_id}/equity-curve")
+def get_equity_curve(backtest_id: int, db: Session = Depends(get_db)) -> dict:
+    backtest = db.get(BacktestResult, backtest_id)
+    if backtest is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Backtest not found")
+    if backtest.status != 'done':
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Backtest not completed yet")
+
+    if not backtest.equity_curve:
+        return {"equity_curve": []}
+    try:
+        return {"equity_curve": json.loads(backtest.equity_curve)}
+    except json.JSONDecodeError:
+        return {"equity_curve": []}

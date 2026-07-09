@@ -117,31 +117,47 @@ DECLARE
     v_left           TIMESTAMPTZ[];
     v_right          TIMESTAMPTZ[];
 BEGIN
+    -- Guard clause for impossible or inverted ranges caused by recursive splits
+    IF p_start > p_end THEN
+        RETURN ARRAY[]::gap_range[];
+    END IF;
+
     v_expected_count := _count_intervals(p_start, p_end, p_interval);
     v_present_count  := COALESCE(array_length(p_timestamps, 1), 0);
 
-    -- Базовий випадок 1: всі дані на місці, дір немає
+    -- Base Case 1: All data is present
     IF v_present_count = v_expected_count THEN
         RETURN ARRAY[]::gap_range[];
     END IF;
 
-    -- Базовий випадок 2: повністю порожній відрізок (усі дані пропущені)
+    -- Base Case 2: Complete gap (No timestamps present at all)
     IF v_present_count = 0 THEN
         RETURN ARRAY[ROW(p_start, p_end)::gap_range];
     END IF;
 
-    -- ВИПРАВЛЕНО: Ділимо навпіл кількість інтервалів, а не масиви
-    v_half_offset := FLOOR(v_expected_count / 2);
+    -- Base Case 3: Single interval left but expected != present (and present isn't 0)
+    -- This handles edge cases where expected = 1 but timestamp doesn't match perfectly.
+    IF v_expected_count = 1 THEN
+        RETURN ARRAY[ROW(p_start, p_end)::gap_range];
+    END IF;
+
+    -- FIX: Safely calculate mid point offset (ensuring it's at least 1 interval forward)
+    v_half_offset := v_expected_count / 2;
     v_half_ts     := p_start + (v_half_offset - 1) * p_interval;
 
-    -- Бінарний пошук індексу розбиття масиву міток часу
+    -- Guard rails against overshoot
+    IF v_half_ts >= p_end THEN
+        v_half_ts := p_end - p_interval;
+    END IF;
+
+    -- Binary search to split timestamps array
     v_split_idx := _bisect_right(p_timestamps, v_half_ts);
 
-    -- Розрізаємо масив на ліву та праву частини
+    -- Slice array safely
     v_left  := p_timestamps[1 : v_split_idx];
-    v_right := p_timestamps[v_split_idx + 1 : array_length(p_timestamps, 1)];
+    v_right := p_timestamps[v_split_idx + 1 : v_present_count];
 
-    -- Рекурсивно шукаємо в обох половинках та об'єднуємо результати
+    -- Recurse cleanly without overlapping domains
     RETURN _find_gaps_recursive(p_start, v_half_ts, p_interval, v_left)
         || _find_gaps_recursive(v_half_ts + p_interval, p_end, p_interval, v_right);
 END;
