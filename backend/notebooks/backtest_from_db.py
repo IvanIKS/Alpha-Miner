@@ -19,4 +19,4 @@ end_date = datetime(2023, 1, 1, 0, 0)
 
 
 backtest_service.launch_backtest(strategy, start_date, end_date, 1000.0)
-#backtest_service.launch_backtest_shuffled(strategy, start_date, end_date, 1000.0)
+backtest_service.launch_backtest_shuffled(strategy, start_date, end_date, 1000.0)
