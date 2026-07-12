@@ -97,7 +97,7 @@ function BackfillSection({
         <label className="field">
           <span className="field-label">Timeframe</span>
           <select value={timeframe} onChange={(e) => setTimeframe(e.target.value)}>
-            {(allTfs.length > 0 ? allTfs : TF_ORDER).map((tf) => (
+            {(TF_ORDER).map((tf) => (
               <option key={tf} value={tf}>{tf}</option>
             ))}
           </select>
@@ -165,7 +165,7 @@ const LABEL_W = 148
 const HDR_H = 22
 const BAR_H = 32
 const ROW_GAP = 3
-const AXIS_H = 26
+const AXIS_H = 36   // 14px for tick row + 10px for date-range row + 12px gap before bars
 const PAD_R = 10
 const SVG_W = 880
 
@@ -339,6 +339,28 @@ export function DatabaseMonitorScreen() {
                   </g>
                 )
               })}
+
+              {/* Exact range boundary labels — pinned to chart edges */}
+              {isFinite(globalMin) && (
+                <>
+                  <line x1={LABEL_W} y1={AXIS_H - 2} x2={LABEL_W} y2={svgH - 6}
+                    stroke="rgba(148,163,184,0.55)" strokeWidth={1} />
+                  <text x={LABEL_W + 3} y={26} textAnchor="start" fontSize={10} fontWeight={600}
+                    fill="#6b7280" fontFamily="system-ui, sans-serif">
+                    {new Date(globalMin).toISOString().slice(0, 10)}
+                  </text>
+                </>
+              )}
+              {isFinite(globalMax) && (
+                <>
+                  <line x1={SVG_W - PAD_R} y1={AXIS_H - 2} x2={SVG_W - PAD_R} y2={svgH - 6}
+                    stroke="rgba(148,163,184,0.55)" strokeWidth={1} />
+                  <text x={SVG_W - PAD_R - 3} y={26} textAnchor="end" fontSize={10} fontWeight={600}
+                    fill="#6b7280" fontFamily="system-ui, sans-serif">
+                    {new Date(globalMax).toISOString().slice(0, 10)}
+                  </text>
+                </>
+              )}
 
               {/* Items */}
               {renderedItems.map((item) => {

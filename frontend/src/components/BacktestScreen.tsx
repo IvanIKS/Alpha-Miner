@@ -175,6 +175,7 @@ export function BacktestScreen() {
   const [isLoadingParameters, setIsLoadingParameters] = useState(false)
   const [backtests, setBacktests] = useState<BacktestRecord[]>([])
   const [isLoadingBacktests, setIsLoadingBacktests] = useState(false)
+  const [selectedBacktestId, setSelectedBacktestId] = useState<number | null>(null)
 
   const pollingRef = useRef<ReturnType<typeof setInterval> | null>(null)
 
@@ -195,6 +196,7 @@ export function BacktestScreen() {
             stopPolling()
             setStats(response.result)
             setIsRunning(false)
+            setSelectedBacktestId(backtestId)
             loadBacktests(authToken)
             try {
               const curve = await fetchEquityCurve(authToken, backtestId)
@@ -248,6 +250,36 @@ export function BacktestScreen() {
       isMounted = false
     }
   }, [token])
+
+  async function handleSelectBacktest(bt: BacktestRecord) {
+    stopPolling()
+    setIsRunning(false)
+    setTaskStatus('')
+    setErrorMessage('')
+    setSelectedBacktestId(bt.id)
+
+    let metrics: BacktestMetrics | null = null
+    if (bt.results) {
+      try {
+        const raw = JSON.parse(bt.results) as Record<string, number>
+        metrics = {
+          overallProfitPercent: raw.overall_profit_percent ?? 0,
+          meanMonthlyProfitPercent: raw.mean_monthly_profit_percent ?? 0,
+          maxDrawdownPercent: raw.max_drawdown_percent ?? 0,
+          winRatePercent: raw.win_rate_percent ?? 0,
+          sharpeRatio: raw.sharpe_ratio ?? 0,
+        }
+      } catch { /* ignore */ }
+    }
+    setStats(metrics)
+    setEquityCurve([])
+
+    if (!token) return
+    try {
+      const curve = await fetchEquityCurve(token, bt.id)
+      setEquityCurve(curve)
+    } catch { /* equity curve is optional */ }
+  }
 
   const loadBacktests = (authToken: string) => {
     setIsLoadingBacktests(true)
@@ -348,6 +380,7 @@ export function BacktestScreen() {
               setErrorMessage('')
               setStats(null)
               setEquityCurve([])
+              setSelectedBacktestId(null)
               setTaskStatus('pending')
               void runBacktest(token, {
                 strategyId: selectedStrategy.id,
@@ -537,6 +570,7 @@ export function BacktestScreen() {
                 <th scope="col">Win rate</th>
                 <th scope="col">Sharpe</th>
                 <th scope="col">Drawdown</th>
+                <th scope="col"><span className="sr-only">Actions</span></th>
               </tr>
             </thead>
             <tbody>
@@ -558,8 +592,13 @@ export function BacktestScreen() {
                       // ignore invalid JSON
                     }
                   }
+                  const isSelected = selectedBacktestId === bt.id
                   return (
-                    <tr key={bt.id}>
+                    <tr
+                      key={bt.id}
+                      onClick={() => { void handleSelectBacktest(bt) }}
+                      style={{ cursor: 'pointer', background: isSelected ? 'rgba(250,204,21,0.18)' : undefined }}
+                    >
                       <td>{bt.id}</td>
                       <td>{bt.strategyName}</td>
                       <td>{bt.datasetName}</td>
@@ -569,6 +608,11 @@ export function BacktestScreen() {
                       <td>{parsed ? `${parsed.win_rate_percent.toFixed(0)}%` : '—'}</td>
                       <td>{parsed ? parsed.sharpe_ratio.toFixed(2) : '—'}</td>
                       <td>{parsed ? `${parsed.max_drawdown_percent.toFixed(1)}%` : '—'}</td>
+                      <td>
+                        <span style={{ fontSize: '0.78rem', color: isSelected ? '#92400e' : '#9ca3af' }}>
+                          {isSelected ? '▶ viewing' : 'view'}
+                        </span>
+                      </td>
                     </tr>
                   )
                 })
