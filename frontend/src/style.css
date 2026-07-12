@@ -649,16 +649,90 @@ select:focus-visible {
   margin-top: 0;
 }
 
-.db-badge {
-  display: inline-block;
-  padding: 0.15rem 0.5rem;
-  border-radius: 999px;
-  background-color: rgba(250, 204, 21, 0.18);
-  border: 1px solid rgba(250, 204, 21, 0.5);
-  font-size: 0.78rem;
+.db-filter-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+@media (min-width: 640px) {
+  .db-filter-panel {
+    flex-direction: row;
+    align-items: flex-start;
+    gap: 1.5rem;
+  }
+}
+
+.db-filter-sep {
+  display: none;
+  width: 1px;
+  align-self: stretch;
+  background: rgba(148, 163, 184, 0.35);
+}
+
+@media (min-width: 640px) {
+  .db-filter-sep {
+    display: block;
+  }
+}
+
+.db-filter-group {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  flex: 1;
+  min-width: 0;
+}
+
+.db-filter-title {
+  font-size: 0.73rem;
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  color: #6b7280;
   font-weight: 600;
-  letter-spacing: 0.04em;
-  color: #92400e;
+}
+
+.db-filter-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+}
+
+.db-filter-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.22rem 0.65rem;
+  border-radius: 999px;
+  border: 1px solid rgba(148, 163, 184, 0.5);
+  background: #ffffff;
+  cursor: pointer;
+  font-size: 0.82rem;
+  user-select: none;
+  transition: background-color 0.12s ease-out, border-color 0.12s ease-out;
+}
+
+.db-filter-chip:hover {
+  background: rgba(250, 204, 21, 0.1);
+  border-color: rgba(250, 204, 21, 0.6);
+}
+
+.db-filter-chip input[type='checkbox'] {
+  width: 13px;
+  height: 13px;
+  padding: 0;
+  border-radius: 3px;
+  border: 1px solid rgba(148, 163, 184, 0.6);
+  cursor: pointer;
+  accent-color: #facc15;
+  flex-shrink: 0;
+}
+
+.db-tf-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
 }
 
 .sr-only {
