@@ -1,6 +1,6 @@
-import { useEffect, useMemo, useState } from 'react'
+import { type FormEvent, useEffect, useMemo, useState } from 'react'
 import { useAuth } from '../contexts/AuthContext'
-import { fetchOHLCVCoverage, type OHLCVCoverageEntry } from '../services/api'
+import { fetchOHLCVCoverage, triggerBackfill, type BackfillJob, type OHLCVCoverageEntry } from '../services/api'
 
 const TF_ORDER = ['1m','3m','5m','15m','30m','1h','2h','4h','6h','8h','12h','1d','3d','1w','1M']
 const TF_COLORS: Record<string, string> = {
@@ -16,6 +16,149 @@ function sortTfs(tfs: string[]) {
     const ia = TF_ORDER.indexOf(a), ib = TF_ORDER.indexOf(b)
     return (ia < 0 ? 999 : ia) - (ib < 0 ? 999 : ib)
   })
+}
+
+const TODAY = new Date().toISOString().slice(0, 10)
+
+function BackfillSection({
+  allSymbols,
+  allTfs,
+  defaultSymbol,
+}: {
+  allSymbols: string[]
+  allTfs: string[]
+  defaultSymbol: string
+}) {
+  const { token } = useAuth()
+  const [symbol, setSymbol] = useState(defaultSymbol)
+  const [exchange, setExchange] = useState('binance')
+  const [timeframe, setTimeframe] = useState(allTfs[0] ?? '1m')
+  const [dateFrom, setDateFrom] = useState('')
+  const [dateTo, setDateTo] = useState(TODAY)
+  const [submitting, setSubmitting] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const [jobs, setJobs] = useState<BackfillJob[]>([])
+
+  // Keep symbol in sync when allSymbols first load
+  useEffect(() => {
+    if (!symbol && defaultSymbol) setSymbol(defaultSymbol)
+  }, [defaultSymbol])
+
+  async function handleSubmit(e: FormEvent) {
+    e.preventDefault()
+    if (!token || !symbol || !dateFrom) return
+    setSubmitting(true)
+    setError(null)
+    try {
+      const job = await triggerBackfill(token, {
+        symbol,
+        exchange,
+        timeframe,
+        startTime: `${dateFrom}T00:00:00Z`,
+        endTime: `${dateTo}T23:59:59Z`,
+      })
+      setJobs((prev) => [job, ...prev])
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to queue backfill')
+    } finally {
+      setSubmitting(false)
+    }
+  }
+
+  return (
+    <div className="card">
+      <h2 className="section-title">Backfill Data</h2>
+      <form onSubmit={handleSubmit} className="backfill-form">
+        <datalist id="known-symbols">
+          {allSymbols.map((s) => <option key={s} value={s} />)}
+        </datalist>
+
+        <label className="field">
+          <span className="field-label">Symbol</span>
+          <input
+            list="known-symbols"
+            value={symbol}
+            onChange={(e) => setSymbol(e.target.value)}
+            placeholder="BTC/USDT"
+            required
+          />
+        </label>
+
+        <label className="field">
+          <span className="field-label">Exchange</span>
+          <input
+            value={exchange}
+            onChange={(e) => setExchange(e.target.value)}
+            placeholder="binance"
+            required
+          />
+        </label>
+
+        <label className="field">
+          <span className="field-label">Timeframe</span>
+          <select value={timeframe} onChange={(e) => setTimeframe(e.target.value)}>
+            {(allTfs.length > 0 ? allTfs : TF_ORDER).map((tf) => (
+              <option key={tf} value={tf}>{tf}</option>
+            ))}
+          </select>
+        </label>
+
+        <label className="field">
+          <span className="field-label">From</span>
+          <input type="date" value={dateFrom} onChange={(e) => setDateFrom(e.target.value)} required />
+        </label>
+
+        <label className="field">
+          <span className="field-label">To</span>
+          <input type="date" value={dateTo} onChange={(e) => setDateTo(e.target.value)} required />
+        </label>
+
+        <div className="field backfill-submit-field">
+          <button type="submit" className="primary-button" disabled={submitting || !symbol || !dateFrom}>
+            {submitting ? 'Queuing…' : 'Queue Backfill'}
+          </button>
+        </div>
+      </form>
+
+      {error && (
+        <p style={{ margin: '0.75rem 0 0', color: '#b91c1c', fontSize: '0.875rem' }}>{error}</p>
+      )}
+
+      {jobs.length > 0 && (
+        <div style={{ marginTop: '1rem' }}>
+          <p className="db-filter-title" style={{ marginBottom: '0.5rem' }}>Queued jobs</p>
+          <div className="table-wrapper">
+            <table className="data-table">
+              <thead>
+                <tr>
+                  <th>Symbol</th>
+                  <th>Timeframe</th>
+                  <th>From</th>
+                  <th>To</th>
+                  <th>Job ID</th>
+                  <th>Status</th>
+                </tr>
+              </thead>
+              <tbody>
+                {jobs.map((job) => (
+                  <tr key={job.jobId}>
+                    <td>{job.exchange} · {job.symbol}</td>
+                    <td><span className="db-tf-dot" style={{ background: tfColor(job.timeframe), display: 'inline-block', marginRight: 4, verticalAlign: 'middle' }} />{job.timeframe}</td>
+                    <td style={{ color: '#6b7280' }}>{job.startTimestamp.slice(0, 10)}</td>
+                    <td style={{ color: '#6b7280' }}>{job.endTimestamp.slice(0, 10)}</td>
+                    <td style={{ fontFamily: 'monospace', fontSize: '0.78rem', color: '#6b7280' }}>{job.jobId.slice(0, 12)}…</td>
+                    <td>
+                      <span className="backfill-status-badge">{job.status}</span>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+    </div>
+  )
 }
 
 const LABEL_W = 148
@@ -261,6 +404,15 @@ export function DatabaseMonitorScreen() {
           </div>
         )}
       </div>
+
+      {/* Backfill section */}
+      {!loading && (
+        <BackfillSection
+          allSymbols={allSymbols}
+          allTfs={allTfs}
+          defaultSymbol={allSymbols[0] ?? ''}
+        />
+      )}
 
       {/* Filter panel */}
       {!loading && entries.length > 0 && (

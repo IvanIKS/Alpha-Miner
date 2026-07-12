@@ -306,6 +306,50 @@ export async function fetchBacktestStatus(token: string, backtestId: number): Pr
   }
 }
 
+export type BackfillJob = {
+  jobId: string
+  status: string
+  exchange: string
+  symbol: string
+  timeframe: string
+  startTimestamp: string
+  endTimestamp: string
+  message: string
+}
+
+export async function triggerBackfill(
+  token: string,
+  params: { symbol: string; exchange: string; timeframe: string; startTime: string; endTime: string },
+): Promise<BackfillJob> {
+  type ApiResp = {
+    job_id: string
+    status: string
+    exchange: string
+    symbol: string
+    start_timestamp: string
+    end_timestamp: string
+    message: string
+  }
+  const qs = new URLSearchParams({
+    symbol: params.symbol,
+    exchange: params.exchange,
+    timeframe: params.timeframe,
+    start_time: params.startTime,
+    end_time: params.endTime,
+  })
+  const raw = await apiRequest<ApiResp>(`/historical_data/ohlcv?${qs}`, { method: 'POST' }, token)
+  return {
+    jobId: raw.job_id,
+    status: raw.status,
+    exchange: raw.exchange,
+    symbol: raw.symbol,
+    timeframe: params.timeframe,
+    startTimestamp: raw.start_timestamp,
+    endTimestamp: raw.end_timestamp,
+    message: raw.message,
+  }
+}
+
 export async function fetchOHLCVCoverage(token: string): Promise<OHLCVCoverageEntry[]> {
   type ApiEntry = {
     exchange: string
