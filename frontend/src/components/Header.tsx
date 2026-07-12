@@ -42,6 +42,14 @@ export function Header({ onLogout }: HeaderProps) {
               Agentic Lab
             </NavLink>
           </li>
+          <li>
+            <NavLink
+              to="/db-monitor"
+              className={({ isActive }) => (isActive ? 'nav-link nav-link--active' : 'nav-link')}
+            >
+              DB Monitor
+            </NavLink>
+          </li>
         </ul>
       </nav>
 

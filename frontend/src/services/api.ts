@@ -75,6 +75,15 @@ export type BacktestRecord = {
   status?: string
 }
 
+export type OHLCVCoverageEntry = {
+  exchange: string
+  symbol: string
+  timeframe: string
+  fromDate: string
+  toDate: string
+  candleCount: number
+}
+
 type LoginResponse = {
   access_token: string
   token_type: string
@@ -295,6 +304,26 @@ export async function fetchBacktestStatus(token: string, backtestId: number): Pr
         }
       : null,
   }
+}
+
+export async function fetchOHLCVCoverage(token: string): Promise<OHLCVCoverageEntry[]> {
+  type ApiEntry = {
+    exchange: string
+    symbol: string
+    timeframe: string
+    from_date: string
+    to_date: string
+    candle_count: number
+  }
+  const payload = await apiRequest<ApiEntry[]>('/historical_data/coverage', { method: 'GET' }, token)
+  return payload.map((e) => ({
+    exchange: e.exchange,
+    symbol: e.symbol,
+    timeframe: e.timeframe,
+    fromDate: e.from_date,
+    toDate: e.to_date,
+    candleCount: e.candle_count,
+  }))
 }
 
 export async function fetchEquityCurve(token: string, backtestId: number): Promise<number[]> {

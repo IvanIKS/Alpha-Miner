@@ -3,6 +3,7 @@ import { Header } from './components/Header'
 import { LoginScreen } from './components/LoginScreen'
 import { BotsScreen } from './components/BotsScreen'
 import { BacktestScreen } from './components/BacktestScreen'
+import { DatabaseMonitorScreen } from './components/DatabaseMonitorScreen'
 import { useAuth } from './contexts/AuthContext'
 
 function RequireAuth() {
@@ -51,6 +52,7 @@ export function App() {
               </div>
             }
           />
+          <Route path="/db-monitor" element={<DatabaseMonitorScreen />} />
         </Route>
       </Route>
       <Route path="*" element={<Navigate to="/login" replace />} />

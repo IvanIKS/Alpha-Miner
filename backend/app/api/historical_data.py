@@ -146,6 +146,49 @@ async def backfill_ohlcv(start_time: str = Query(..., description="Start timesta
         message="Backfill job has been queued for processing"
     )
 
+class OHLCVCoverageEntry(BaseModel):
+    exchange: str
+    symbol: str
+    timeframe: str
+    from_date: datetime
+    to_date: datetime
+    candle_count: int
+
+
+@router.get("/coverage", response_model=List[OHLCVCoverageEntry])
+async def get_coverage():
+    """Return distinct (exchange, symbol, timeframe) combinations with date ranges and candle counts."""
+    from app.data.database.session import db_session
+    from app.data.database.models import OHLCV as OHLCVModel
+    from sqlalchemy import func as sa_func
+
+    with db_session() as session:
+        rows = (
+            session.query(
+                OHLCVModel.exchange,
+                OHLCVModel.symbol,
+                OHLCVModel.timeframe,
+                sa_func.min(OHLCVModel.timestamp).label("from_date"),
+                sa_func.max(OHLCVModel.timestamp).label("to_date"),
+                sa_func.count().label("candle_count"),
+            )
+            .group_by(OHLCVModel.exchange, OHLCVModel.symbol, OHLCVModel.timeframe)
+            .order_by(OHLCVModel.exchange, OHLCVModel.symbol, OHLCVModel.timeframe)
+            .all()
+        )
+        return [
+            OHLCVCoverageEntry(
+                exchange=r.exchange,
+                symbol=r.symbol,
+                timeframe=r.timeframe,
+                from_date=r.from_date,
+                to_date=r.to_date,
+                candle_count=r.candle_count,
+            )
+            for r in rows
+        ]
+
+
 @router.get("/ohlcv/jobs/{job_id}")
 async def get_job_status(job_id: str):
     result = AsyncResult(job_id, app=celery)
