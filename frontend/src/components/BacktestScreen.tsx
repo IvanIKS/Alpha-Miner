@@ -94,18 +94,23 @@ function StrategyParamsForm({
   )
 }
 
-function EquityChart({data}: { data: number[] }) {
+function parseDatesFromDatasetName(name: string): { from: string; to: string } | null {
+  const m = name.match(/(\d{4}-\d{2}-\d{2})_(\d{4}-\d{2}-\d{2})/)
+  return m ? { from: m[1], to: m[2] } : null
+}
+
+function EquityChart({ data, dateFrom, dateTo }: { data: number[]; dateFrom?: string; dateTo?: string }) {
   if (data.length < 2) {
     return (
-        <div className="chart-placeholder" aria-label="Backtest equity chart">
-          <div className="chart-line"/>
-        </div>
+      <div className="chart-placeholder" aria-label="Backtest equity chart">
+        <div className="chart-line" />
+      </div>
     )
   }
 
   const W = 800
-  const H = 220
-  const PAD = {top: 16, right: 16, bottom: 32, left: 60}
+  const H = 230
+  const PAD = { top: 16, right: 20, bottom: 40, left: 66 }
   const innerW = W - PAD.left - PAD.right
   const innerH = H - PAD.top - PAD.bottom
 
@@ -116,39 +121,92 @@ function EquityChart({data}: { data: number[] }) {
   const toX = (i: number) => PAD.left + (i / (data.length - 1)) * innerW
   const toY = (v: number) => PAD.top + (1 - (v - min) / range) * innerH
 
+  function fmtVal(v: number): string {
+    const abs = Math.abs(v)
+    if (abs >= 1_000_000) return `${(v / 1_000_000).toFixed(1)}M`
+    if (abs >= 1_000) return `${(v / 1_000).toFixed(1)}K`
+    return v.toFixed(1)
+  }
+
   const pathD = data
-      .map((v, i) => `${i === 0 ? 'M' : 'L'}${toX(i).toFixed(1)},${toY(v).toFixed(1)}`)
-      .join(' ')
+    .map((v, i) => `${i === 0 ? 'M' : 'L'}${toX(i).toFixed(1)},${toY(v).toFixed(1)}`)
+    .join(' ')
 
   const areaD =
-      pathD +
-      ` L${toX(data.length - 1).toFixed(1)},${(PAD.top + innerH).toFixed(1)}` +
-      ` L${PAD.left.toFixed(1)},${(PAD.top + innerH).toFixed(1)} Z`
+    pathD +
+    ` L${toX(data.length - 1).toFixed(1)},${(PAD.top + innerH).toFixed(1)}` +
+    ` L${PAD.left.toFixed(1)},${(PAD.top + innerH).toFixed(1)} Z`
 
   const isProfit = data[data.length - 1] >= data[0]
   const color = isProfit ? '#22c55e' : '#ef4444'
-  const fillColor = isProfit ? 'rgba(34,197,94,0.12)' : 'rgba(239,68,68,0.12)'
+  const fillColor = isProfit ? 'rgba(34,197,94,0.1)' : 'rgba(239,68,68,0.1)'
 
-  const tickCount = 5
-  const yTicks = Array.from({length: tickCount}, (_, i) => {
-    const v = min + (range * i) / (tickCount - 1)
-    return {y: toY(v), label: v.toFixed(0)}
+  // Y-axis ticks
+  const Y_TICKS = 5
+  const yTicks = Array.from({ length: Y_TICKS }, (_, i) => {
+    const v = min + (range * i) / (Y_TICKS - 1)
+    return { y: toY(v), label: fmtVal(v) }
   })
 
+  // X-axis ticks — 5 evenly spaced, labelled by date or percentage
+  const startMs = dateFrom ? new Date(dateFrom).getTime() : null
+  const endMs = dateTo ? new Date(dateTo).getTime() : null
+  const X_TICKS = 5
+  const xTicks = Array.from({ length: X_TICKS }, (_, i) => {
+    const frac = i / (X_TICKS - 1)
+    const idx = Math.round(frac * (data.length - 1))
+    let label: string
+    if (startMs !== null && endMs !== null) {
+      label = new Date(startMs + frac * (endMs - startMs)).toISOString().slice(0, 10)
+    } else {
+      label = `${Math.round(frac * 100)}%`
+    }
+    return { x: toX(idx), label, i }
+  })
+
+  const baseline = PAD.top + innerH
+
   return (
-      <svg viewBox={`0 0 ${W} ${H}`} style={{width: '100%', height: '100%'}} aria-label="Equity curve chart">
-        {yTicks.map((t) => (
-            <g key={t.label}>
-              <line x1={PAD.left} y1={t.y} x2={PAD.left + innerW} y2={t.y} stroke="rgba(255,255,255,0.08)"
-                    strokeWidth="1"/>
-              <text x={PAD.left - 6} y={t.y + 4} textAnchor="end" fontSize="11" fill="rgba(255,255,255,0.45)">
-                {t.label}
-              </text>
-            </g>
-        ))}
-        <path d={areaD} fill={fillColor}/>
-        <path d={pathD} fill="none" stroke={color} strokeWidth="1.5" strokeLinejoin="round"/>
-      </svg>
+    <svg viewBox={`0 0 ${W} ${H}`} style={{ width: '100%', height: '100%' }} aria-label="Equity curve chart">
+      {/* Horizontal grid lines */}
+      {yTicks.map((t) => (
+        <line key={t.label} x1={PAD.left} y1={t.y} x2={PAD.left + innerW} y2={t.y}
+          stroke="rgba(148,163,184,0.18)" strokeWidth={1} />
+      ))}
+
+      {/* Axis lines */}
+      <line x1={PAD.left} y1={PAD.top} x2={PAD.left} y2={baseline}
+        stroke="rgba(148,163,184,0.5)" strokeWidth={1} />
+      <line x1={PAD.left} y1={baseline} x2={PAD.left + innerW} y2={baseline}
+        stroke="rgba(148,163,184,0.5)" strokeWidth={1} />
+
+      {/* Area fill + equity line */}
+      <path d={areaD} fill={fillColor} />
+      <path d={pathD} fill="none" stroke={color} strokeWidth="1.5" strokeLinejoin="round" />
+
+      {/* Y-axis labels */}
+      {yTicks.map((t) => (
+        <text key={t.label} x={PAD.left - 6} y={t.y + 4} textAnchor="end"
+          fontSize={11} fill="#6b7280" fontFamily="system-ui, sans-serif">
+          {t.label}
+        </text>
+      ))}
+
+      {/* X-axis tick marks + labels */}
+      {xTicks.map(({ x, label, i }) => (
+        <g key={label}>
+          <line x1={x} y1={baseline} x2={x} y2={baseline + 4}
+            stroke="rgba(148,163,184,0.5)" strokeWidth={1} />
+          <text
+            x={x} y={baseline + 16}
+            textAnchor={i === 0 ? 'start' : i === X_TICKS - 1 ? 'end' : 'middle'}
+            fontSize={10} fill="#9ca3af" fontFamily="system-ui, sans-serif"
+          >
+            {label}
+          </text>
+        </g>
+      ))}
+    </svg>
   )
 }
 
@@ -176,6 +234,8 @@ export function BacktestScreen() {
   const [backtests, setBacktests] = useState<BacktestRecord[]>([])
   const [isLoadingBacktests, setIsLoadingBacktests] = useState(false)
   const [selectedBacktestId, setSelectedBacktestId] = useState<number | null>(null)
+  const [chartDateFrom, setChartDateFrom] = useState<string | undefined>()
+  const [chartDateTo, setChartDateTo] = useState<string | undefined>()
 
   const pollingRef = useRef<ReturnType<typeof setInterval> | null>(null)
 
@@ -273,6 +333,10 @@ export function BacktestScreen() {
     }
     setStats(metrics)
     setEquityCurve([])
+
+    const dates = parseDatesFromDatasetName(bt.datasetName)
+    setChartDateFrom(dates?.from)
+    setChartDateTo(dates?.to)
 
     if (!token) return
     try {
@@ -381,6 +445,8 @@ export function BacktestScreen() {
               setStats(null)
               setEquityCurve([])
               setSelectedBacktestId(null)
+              setChartDateFrom(dateFrom)
+              setChartDateTo(dateTo)
               setTaskStatus('pending')
               void runBacktest(token, {
                 strategyId: selectedStrategy.id,
@@ -509,7 +575,7 @@ export function BacktestScreen() {
         <div className="backtest-main">
           <div className="card backtest-chart-card">
             <h2 className="section-title">Equity curve</h2>
-            <EquityChart data={equityCurve} />
+            <EquityChart data={equityCurve} dateFrom={chartDateFrom} dateTo={chartDateTo} />
           </div>
 
           <div className="backtest-bottom">
