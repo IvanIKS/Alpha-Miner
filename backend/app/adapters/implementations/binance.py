@@ -7,6 +7,7 @@ import time
 from app.adapters.adapter import Adapter
 from app.data.database.session import db_session
 from app.data.database.models import OHLCV
+from app.execution.commission import Commission
 from app.utils.timeframe import get_candles_left
 
 
@@ -25,6 +26,9 @@ class BinanceAdapter(Adapter):
             'secret': api_secret,
             'enableRateLimit': True,  # helps prevent rate-limit issues
         })
+
+        #TODO : add commission fetch
+        self.commission = Commission(buy_commission_percents=0.1, sell_commission_percents=0.1)
 
 
     def backfill_ohlcv(self, start_date : datetime.datetime, end_date : datetime.datetime, symbol, timeframe):
@@ -65,3 +69,6 @@ class BinanceAdapter(Adapter):
             candles_left = get_candles_left(since, end_time, timeframe)
             time.sleep(self.exchange.rateLimit / 1000)
             print(f"Loaded {len(rows)} candles up to {since}")
+
+        def get_commission(self) -> Commission:
+            return self.commission

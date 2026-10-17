@@ -2,6 +2,10 @@ import logging
 from datetime import datetime
 from decimal import Decimal
 
+from app.execution import slippage
+from app.execution.slippage import Slippage, SimpleSlippage
+from commission import Commission
+
 
 class ExecutionEngine:
     def __init__(self):
@@ -19,17 +23,31 @@ class ExecutionResult:
 
 
 class BacktestExecutionEngine(ExecutionEngine):
-    def __init__(self, log_process=False):
+    def __init__(self, commission=None, slippage=None, log_process=False):
         super().__init__()
         self.trade_history = []  # List of closed trade PnLs: [50.5, -20.0, ...]
         self.open_positions = {}  # Tracks {symbol: {'price': Decimal, 'quantity': Decimal, 'side': str}}
         self.equity_curve = []
         self.logger = logging.getLogger(__name__)
+
         if (log_process):
             logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
             self.logger.info("Backtest execution engine initialized with trade tracking.")
         else:
             logging.basicConfig(level=logging.ERROR, format='%(asctime)s - %(levelname)s - %(message)s')
+
+        if commission is None:
+            self.commission = commission.Comission(0, 0)
+        else:
+            self.commission = commission
+            self.logger.info(
+                f"Backtest execution engine initialized with commission rate: {commission}"
+            )
+        if slippage is None:
+            self.slippage_ = SimpleSlippage()
+        else:
+            self.slippage_ = slippage
+            self.logger.info(f"Backtest execution engine initialized with slippage: {slippage}")
 
     def execute(self, order):
         """Simulate execution and record trade performance."""
@@ -41,8 +59,8 @@ class BacktestExecutionEngine(ExecutionEngine):
             if prev_order['side'] != order.side:
                 # Calculate PnL: (Exit Price - Entry Price) * Quantity
                 # Note: This logic assumes 'Buy Low, Sell High'
-                entry_price = Decimal(prev_order['price'])
-                exit_price = Decimal(order.price)
+                entry_price = Decimal(prev_order['price']) + self.commission.calculate(order) + self.slippage_.calculate(order)
+                exit_price = Decimal(order.price) - self.commission.calculate(order) - self.slippage_.calculate(order)
 
                 if prev_order['side'] == 'buy':
                     pnl = Decimal((exit_price - entry_price) * Decimal(order.quantity))
