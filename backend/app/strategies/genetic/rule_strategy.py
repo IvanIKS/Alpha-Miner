@@ -10,7 +10,6 @@ from collections import deque
 import numpy as np
 
 import app.strategies.genetic.strategy_gp as sg
-# TODO: check the first two paths against the project (the third is the one RSIStrategy uses).
 from app.strategies.Strategy import Strategy
 from app.execution.signal import SimpleSignal
 from app.strategies.rules.strategy_requirements import MustBePandasDataFrame, MustBeBinanceOHLCVData
