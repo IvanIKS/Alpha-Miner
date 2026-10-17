@@ -1,12 +1,17 @@
 import type { FormEvent } from 'react'
 import { useState } from 'react'
-import { useLocation, useNavigate } from 'react-router-dom'
+import { Navigate, useLocation, useNavigate } from 'react-router-dom'
 import { useAuth } from '../contexts/AuthContext'
 
 export function LoginScreen() {
   const navigate = useNavigate()
   const location = useLocation()
-  const { login: performLogin } = useAuth()
+  const { isAuthenticated, login: performLogin } = useAuth()
+
+  if (isAuthenticated) {
+    const state = location.state as { from?: { pathname?: string } } | null
+    return <Navigate to={state?.from?.pathname ?? '/bots'} replace />
+  }
   const [loginValue, setLoginValue] = useState('')
   const [password, setPassword] = useState('')
   const [errorMessage, setErrorMessage] = useState('')

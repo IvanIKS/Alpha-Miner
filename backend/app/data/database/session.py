@@ -77,7 +77,7 @@ def seed_defaults() -> None:
             )
 
 def _database_url() -> str:
-    return os.getenv("DATABASE_URL", "postgresql://postgres:postgres@localhost:5432/app")
+    return os.getenv("DATABASE_URL", "postgresql+psycopg2://postgres:postgres@localhost:5432/app")
 
 
 engine = create_engine(_database_url())

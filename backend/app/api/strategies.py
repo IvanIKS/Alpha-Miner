@@ -10,6 +10,7 @@ from app.strategies.registry import STRATEGY_CLASSES
 
 router = APIRouter(prefix="/strategies", tags=["Strategies"])
 
+
 class ParameterSchema(BaseModel):
     key: str
     label: str
@@ -29,30 +30,7 @@ class StrategyResponse(BaseModel):
 async def list_strategies(db: Session = Depends(get_db)) -> list[StrategyResponse]:
     rows = db.execute(select(Strategy).order_by(Strategy.name.asc())).scalars().all()
     return [
-        StrategyResponse(
-            id=row.id,
-            name=row.name,
-            description=row.description
-        )
-        for row in rows
-    ]
-
-@router.get("/names")
-async def list_strategy_names(db: Session = Depends(get_db)):
-    rows = db.execute(select(Strategy.name).order_by(Strategy.name.asc())).all()
-    return {"available_strategies": [r[0] for r in rows]}
-
-
-@router.get("", response_model=list[StrategyResponse])
-async def list_strategies(db: Session = Depends(get_db)) -> list[StrategyResponse]:
-    rows = db.execute(select(Strategy).order_by(Strategy.name.asc())).scalars().all()
-    return [
-        StrategyResponse(
-            id=row.id,
-            name=row.name,
-            description=row.description,
-            symbols_required=row.symbols_required
-        )
+        StrategyResponse(id=row.id, name=row.name, description=row.description)
         for row in rows
     ]
 

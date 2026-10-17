@@ -1,4 +1,4 @@
-import { createContext, useContext, useEffect, useMemo, useState } from 'react'
+import { createContext, useContext, useMemo, useState } from 'react'
 import { clearAuthToken, getAuthToken, login as loginRequest, setAuthToken } from '../services/api'
 
 type AuthContextValue = {
@@ -11,11 +11,7 @@ type AuthContextValue = {
 const AuthContext = createContext<AuthContextValue | undefined>(undefined)
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
-  const [token, setToken] = useState<string | null>(null)
-
-  useEffect(() => {
-    setToken(getAuthToken())
-  }, [])
+  const [token, setToken] = useState<string | null>(() => getAuthToken())
 
   const value = useMemo<AuthContextValue>(
     () => ({

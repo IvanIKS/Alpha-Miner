@@ -606,7 +606,7 @@ export function BacktestScreen() {
                 </div>
                 <div>
                   <dt>Sharpe ratio</dt>
-                  <dd>{stats ? stats.sharpeRatio.toFixed(2) : '—'}</dd>
+                  <dd>{stats?.sharpeRatio != null ? stats.sharpeRatio.toFixed(2) : '—'}</dd>
                 </div>
               </dl>
             </div>
@@ -672,7 +672,7 @@ export function BacktestScreen() {
                       <td>{bt.status ?? 'done'}</td>
                       <td>{parsed ? `${parsed.overall_profit_percent.toFixed(1)}%` : '—'}</td>
                       <td>{parsed ? `${parsed.win_rate_percent.toFixed(0)}%` : '—'}</td>
-                      <td>{parsed ? parsed.sharpe_ratio.toFixed(2) : '—'}</td>
+                      <td>{parsed?.sharpe_ratio != null ? parsed.sharpe_ratio.toFixed(2) : '—'}</td>
                       <td>{parsed ? `${parsed.max_drawdown_percent.toFixed(1)}%` : '—'}</td>
                       <td>
                         <span style={{ fontSize: '0.78rem', color: isSelected ? '#92400e' : '#9ca3af' }}>

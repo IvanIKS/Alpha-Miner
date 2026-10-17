@@ -7,7 +7,7 @@ services:
       - ./backend:/app          
       - backend_data:/app/data_persistence
     environment:
-      - DATABASE_URL=postgresql://postgres:postgres@db:5432/app
+      - DATABASE_URL=postgresql+psycopg2://postgres:postgres@db:5432/app
       - FASTAPI_ROOT_PATH=/api
       - CELERY_BROKER_URL=redis://redis:6379/0
       - CELERY_RESULT_BACKEND=redis://redis:6379/0
@@ -37,7 +37,7 @@ services:
       context: ./backend
     command: celery -A app.background_tasks.celery_app worker --loglevel=info --concurrency=1
     environment:
-      - DATABASE_URL=postgresql://postgres:postgres@db:5432/app
+      - DATABASE_URL=postgresql+psycopg2://postgres:postgres@db:5432/app
       - CELERY_BROKER_URL=redis://redis:6379/0
       - CELERY_RESULT_BACKEND=redis://redis:6379/0
     depends_on:
