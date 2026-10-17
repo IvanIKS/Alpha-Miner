@@ -11,3 +11,4 @@ celery>=5.4.0
 redis>=5.0.3
 flower>=2.0.1
 ccxt>=4.2.0
+deap>=1.4.3
