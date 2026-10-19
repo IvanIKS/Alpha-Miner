@@ -4,10 +4,13 @@ import os
 import datetime
 import time
 
+from psycopg2._psycopg import Decimal
+
 from app.adapters.adapter import Adapter
 from app.data.database.session import db_session
 from app.data.database.models import OHLCV
 from app.execution.commission import Commission
+from app.execution.order import Order
 from app.utils.timeframe import get_candles_left
 
 
@@ -27,8 +30,8 @@ class BinanceAdapter(Adapter):
             'enableRateLimit': True,  # helps prevent rate-limit issues
         })
 
-        #TODO : add commission fetch
-        self.commission = Commission(buy_commission_percents=0.1, sell_commission_percents=0.1)
+        # Binance features discount commission for spot BNB trading
+        self.commission = BinanceCommission()
 
 
     def backfill_ohlcv(self, start_date : datetime.datetime, end_date : datetime.datetime, symbol, timeframe):
@@ -72,3 +75,21 @@ class BinanceAdapter(Adapter):
 
         def get_commission(self) -> Commission:
             return self.commission
+
+class BinanceCommission(Commission):
+    # TODO : add commission fetch
+    def __init__(self, buy_commission_percents=0.1, sell_commission_percents=0.1):
+        super().__init__(buy_commission_percents, sell_commission_percents)
+        self.BNB_discounted_buy_commission_percents = 0.075
+        self.BNB_discounted_sell_commission_percents = 0.075
+
+    def calculate(self, order : Order) -> Decimal:
+        buy_commission = self.buy_commission
+        sell_commission = self.sell_commission
+        if order.symbol.contains("BNB") :
+            buy_commission = self.BNB_discounted_buy_commission_percents
+            sell_commission = self.BNB_discounted_sell_commission_percents
+        if order.side == "buy":
+            return order.quantity * (self.buy_commission / 100)
+        else:
+            return order.quantity * (self.sell_commission / 100)
