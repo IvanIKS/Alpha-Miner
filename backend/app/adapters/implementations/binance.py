@@ -90,6 +90,6 @@ class BinanceCommission(Commission):
             buy_commission = self.BNB_discounted_buy_commission_percents
             sell_commission = self.BNB_discounted_sell_commission_percents
         if order.side == "buy":
-            return order.quantity * (self.buy_commission / 100)
+            return order.quantity * (buy_commission / 100)
         else:
-            return order.quantity * (self.sell_commission / 100)
+            return order.quantity * (sell_commission / 100)
