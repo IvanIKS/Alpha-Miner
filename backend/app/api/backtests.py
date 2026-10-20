@@ -294,9 +294,18 @@ def get_equity_curve(backtest_id: int, db: Session = Depends(get_db)) -> dict:
     if backtest.status != 'done':
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Backtest not completed yet")
 
-    if not backtest.equity_curve:
-        return {"equity_curve": []}
-    try:
-        return {"equity_curve": json.loads(backtest.equity_curve)}
-    except json.JSONDecodeError:
-        return {"equity_curve": []}
+    equity_curve: list = []
+    if backtest.equity_curve:
+        try:
+            equity_curve = json.loads(backtest.equity_curve)
+        except json.JSONDecodeError:
+            pass
+
+    buy_and_hold_curve: list = []
+    if backtest.buy_and_hold_curve:
+        try:
+            buy_and_hold_curve = json.loads(backtest.buy_and_hold_curve)
+        except json.JSONDecodeError:
+            pass
+
+    return {"equity_curve": equity_curve, "buy_and_hold_curve": buy_and_hold_curve}

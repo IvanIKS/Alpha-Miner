@@ -370,11 +370,19 @@ export async function fetchOHLCVCoverage(token: string): Promise<OHLCVCoverageEn
   }))
 }
 
-export async function fetchEquityCurve(token: string, backtestId: number): Promise<number[]> {
-  const payload = await apiRequest<{ equity_curve: number[] }>(
+export type EquityCurves = {
+  equityCurve: number[]
+  buyAndHoldCurve: number[]
+}
+
+export async function fetchEquityCurve(token: string, backtestId: number): Promise<EquityCurves> {
+  const payload = await apiRequest<{ equity_curve: number[]; buy_and_hold_curve: number[] }>(
     `/backtest/${backtestId}/equity-curve`,
     { method: 'GET' },
     token,
   )
-  return payload.equity_curve
+  return {
+    equityCurve: payload.equity_curve,
+    buyAndHoldCurve: payload.buy_and_hold_curve ?? [],
+  }
 }

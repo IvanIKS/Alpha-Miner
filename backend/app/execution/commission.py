@@ -1,4 +1,4 @@
-from psycopg2._psycopg import Decimal
+from decimal import Decimal
 
 from app.execution.order import Order
 
@@ -10,6 +10,6 @@ class Commission:
 
     def calculate(self, order : Order) -> Decimal:
         if order.side == "buy":
-            return order.quantity * (self.buy_commission / 100)
+            return Decimal(order.quantity * (self.buy_commission / 100))
         else:
-            return order.quantity * (self.sell_commission / 100)
+            return Decimal(order.quantity * (self.sell_commission / 100))

@@ -104,6 +104,7 @@ def _migrate_backtest_results(eng: Engine) -> None:
             "ALTER TABLE backtest_results ADD COLUMN IF NOT EXISTS status VARCHAR(32) NOT NULL DEFAULT 'done'",
             "ALTER TABLE backtest_results ADD COLUMN IF NOT EXISTS celery_task_id VARCHAR(255)",
             "ALTER TABLE backtest_results ADD COLUMN IF NOT EXISTS equity_curve TEXT",
+            "ALTER TABLE backtest_results ADD COLUMN IF NOT EXISTS buy_and_hold_curve TEXT",
         ]:
             try:
                 conn.execute(text(stmt))

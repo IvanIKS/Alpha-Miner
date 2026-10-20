@@ -4,7 +4,7 @@ from decimal import Decimal
 
 from app.execution import slippage
 from app.execution.slippage import Slippage, SimpleSlippage
-from commission import Commission
+from app.execution.commission import Commission
 
 
 class ExecutionEngine:
@@ -37,7 +37,7 @@ class BacktestExecutionEngine(ExecutionEngine):
             logging.basicConfig(level=logging.ERROR, format='%(asctime)s - %(levelname)s - %(message)s')
 
         if commission is None:
-            self.commission = commission.Comission(0, 0)
+            self.commission = Commission(0, 0)
         else:
             self.commission = commission
             self.logger.info(

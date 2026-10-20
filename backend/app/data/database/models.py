@@ -66,6 +66,7 @@ class BacktestResult(Base):
     status: Mapped[str] = mapped_column(String(32), nullable=False, server_default='done')
     celery_task_id: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
     equity_curve: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    buy_and_hold_curve: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
 
 
 class OHLCV(Base):

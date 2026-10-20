@@ -1,3 +1,5 @@
+from decimal import Decimal
+
 from app.execution.order import Order
 
 
@@ -6,5 +8,5 @@ class Slippage:
         pass
 
 class SimpleSlippage(Slippage):
-    def calculate(self, order : Order):
-        return order.price * 0.01
+    def calculate(self, order : Order) -> Decimal:
+        return Decimal(order.price * 0.01)

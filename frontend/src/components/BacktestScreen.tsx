@@ -99,7 +99,17 @@ function parseDatesFromDatasetName(name: string): { from: string; to: string } |
   return m ? { from: m[1], to: m[2] } : null
 }
 
-function EquityChart({ data, dateFrom, dateTo }: { data: number[]; dateFrom?: string; dateTo?: string }) {
+function EquityChart({
+  data,
+  buyAndHoldData,
+  dateFrom,
+  dateTo,
+}: {
+  data: number[]
+  buyAndHoldData?: number[]
+  dateFrom?: string
+  dateTo?: string
+}) {
   if (data.length < 2) {
     return (
       <div className="chart-placeholder" aria-label="Backtest equity chart">
@@ -114,11 +124,14 @@ function EquityChart({ data, dateFrom, dateTo }: { data: number[]; dateFrom?: st
   const innerW = W - PAD.left - PAD.right
   const innerH = H - PAD.top - PAD.bottom
 
-  const min = Math.min(...data)
-  const max = Math.max(...data)
+  const hasBuyAndHold = buyAndHoldData != null && buyAndHoldData.length >= 2
+  const allValues = hasBuyAndHold ? [...data, ...buyAndHoldData!] : data
+  const min = Math.min(...allValues)
+  const max = Math.max(...allValues)
   const range = max - min || 1
 
-  const toX = (i: number) => PAD.left + (i / (data.length - 1)) * innerW
+  const toXAt = (i: number, len: number) => PAD.left + (i / (len - 1)) * innerW
+  const toX = (i: number) => toXAt(i, data.length)
   const toY = (v: number) => PAD.top + (1 - (v - min) / range) * innerH
 
   function fmtVal(v: number): string {
@@ -140,6 +153,13 @@ function EquityChart({ data, dateFrom, dateTo }: { data: number[]; dateFrom?: st
   const isProfit = data[data.length - 1] >= data[0]
   const color = isProfit ? '#22c55e' : '#ef4444'
   const fillColor = isProfit ? 'rgba(34,197,94,0.1)' : 'rgba(239,68,68,0.1)'
+
+  let buyAndHoldPathD: string | null = null
+  if (hasBuyAndHold) {
+    buyAndHoldPathD = buyAndHoldData!
+      .map((v, i) => `${i === 0 ? 'M' : 'L'}${toXAt(i, buyAndHoldData!.length).toFixed(1)},${toY(v).toFixed(1)}`)
+      .join(' ')
+  }
 
   // Y-axis ticks
   const Y_TICKS = 5
@@ -180,7 +200,19 @@ function EquityChart({ data, dateFrom, dateTo }: { data: number[]; dateFrom?: st
       <line x1={PAD.left} y1={baseline} x2={PAD.left + innerW} y2={baseline}
         stroke="rgba(148,163,184,0.5)" strokeWidth={1} />
 
-      {/* Area fill + equity line */}
+      {/* Buy-and-hold reference line (behind strategy curve) */}
+      {buyAndHoldPathD && (
+        <path
+          d={buyAndHoldPathD}
+          fill="none"
+          stroke="rgba(148,163,184,0.55)"
+          strokeWidth="1.5"
+          strokeDasharray="5 3"
+          strokeLinejoin="round"
+        />
+      )}
+
+      {/* Area fill + strategy equity line */}
       <path d={areaD} fill={fillColor} />
       <path d={pathD} fill="none" stroke={color} strokeWidth="1.5" strokeLinejoin="round" />
 
@@ -206,6 +238,20 @@ function EquityChart({ data, dateFrom, dateTo }: { data: number[]; dateFrom?: st
           </text>
         </g>
       ))}
+
+      {/* Legend */}
+      {buyAndHoldPathD && (
+        <g>
+          <line x1={PAD.left + innerW - 140} y1={PAD.top + 10} x2={PAD.left + innerW - 122} y2={PAD.top + 10}
+            stroke={color} strokeWidth="2" />
+          <text x={PAD.left + innerW - 118} y={PAD.top + 14}
+            fontSize={10} fill="#6b7280" fontFamily="system-ui, sans-serif">Strategy</text>
+          <line x1={PAD.left + innerW - 60} y1={PAD.top + 10} x2={PAD.left + innerW - 42} y2={PAD.top + 10}
+            stroke="rgba(148,163,184,0.7)" strokeWidth="2" strokeDasharray="4 2" />
+          <text x={PAD.left + innerW - 38} y={PAD.top + 14}
+            fontSize={10} fill="#6b7280" fontFamily="system-ui, sans-serif">B&amp;H</text>
+        </g>
+      )}
     </svg>
   )
 }
@@ -226,6 +272,7 @@ export function BacktestScreen() {
   const [timeframe, setTimeframe] = useState('1m')
   const [stats, setStats] = useState<BacktestMetrics | null>(null)
   const [equityCurve, setEquityCurve] = useState<number[]>([])
+  const [buyAndHoldCurve, setBuyAndHoldCurve] = useState<number[]>([])
   const [isRunning, setIsRunning] = useState(false)
   const [taskStatus, setTaskStatus] = useState<string>('')
   const [errorMessage, setErrorMessage] = useState('')
@@ -259,8 +306,9 @@ export function BacktestScreen() {
             setSelectedBacktestId(backtestId)
             loadBacktests(authToken)
             try {
-              const curve = await fetchEquityCurve(authToken, backtestId)
-              setEquityCurve(curve)
+              const curves = await fetchEquityCurve(authToken, backtestId)
+              setEquityCurve(curves.equityCurve)
+              setBuyAndHoldCurve(curves.buyAndHoldCurve)
             } catch {
               // equity curve is optional
             }
@@ -333,6 +381,7 @@ export function BacktestScreen() {
     }
     setStats(metrics)
     setEquityCurve([])
+    setBuyAndHoldCurve([])
 
     const dates = parseDatesFromDatasetName(bt.datasetName)
     setChartDateFrom(dates?.from)
@@ -340,8 +389,9 @@ export function BacktestScreen() {
 
     if (!token) return
     try {
-      const curve = await fetchEquityCurve(token, bt.id)
-      setEquityCurve(curve)
+      const curves = await fetchEquityCurve(token, bt.id)
+      setEquityCurve(curves.equityCurve)
+      setBuyAndHoldCurve(curves.buyAndHoldCurve)
     } catch { /* equity curve is optional */ }
   }
 
@@ -444,6 +494,7 @@ export function BacktestScreen() {
               setErrorMessage('')
               setStats(null)
               setEquityCurve([])
+              setBuyAndHoldCurve([])
               setSelectedBacktestId(null)
               setChartDateFrom(dateFrom)
               setChartDateTo(dateTo)
@@ -575,7 +626,7 @@ export function BacktestScreen() {
         <div className="backtest-main">
           <div className="card backtest-chart-card">
             <h2 className="section-title">Equity curve</h2>
-            <EquityChart data={equityCurve} dateFrom={chartDateFrom} dateTo={chartDateTo} />
+            <EquityChart data={equityCurve} buyAndHoldData={buyAndHoldCurve} dateFrom={chartDateFrom} dateTo={chartDateTo} />
           </div>
 
           <div className="backtest-bottom">

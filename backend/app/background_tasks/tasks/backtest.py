@@ -64,6 +64,16 @@ def _downsample(data: list, max_points: int = 500) -> list:
     return [data[int(i * step)] for i in range(max_points)]
 
 
+def _compute_buy_and_hold(data_provider, money_amount: float) -> list:
+    rows = getattr(data_provider, 'data', None)
+    if not rows or money_amount == 0:
+        return []
+    first_close = float(rows[0].get("close", 0))
+    if first_close == 0:
+        return []
+    return [money_amount * float(row["close"]) / first_close for row in rows]
+
+
 def _set_status(backtest_id, status: str) -> None:
     with db_session() as db:
         backtest = db.execute(
@@ -87,6 +97,7 @@ def backtest_task(self, strategy_name : str, strategy_dict : dict, start_date : 
 
         results_json = result.to_json()
         equity_json = json.dumps(_downsample(result.equity_curve))
+        buy_and_hold_json = json.dumps(_downsample(_compute_buy_and_hold(data_provider, money_amount)))
 
         with db_session() as db:
             backtest = db.execute(
@@ -95,6 +106,7 @@ def backtest_task(self, strategy_name : str, strategy_dict : dict, start_date : 
             if backtest:
                 backtest.results = results_json
                 backtest.equity_curve = equity_json
+                backtest.buy_and_hold_curve = buy_and_hold_json
                 backtest.status = 'done'
                 db.commit()
 
