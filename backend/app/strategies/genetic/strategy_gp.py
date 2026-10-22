@@ -331,29 +331,50 @@ def _min_depths(pset):
 MIN_DEPTH = _min_depths(PSET)
 
 
-def gen_tree(pset=PSET, min_=2, max_=4, type_=None, p_leaf=0.4):
+def gen_tree(pset=PSET, min_=2, max_=4, type_=None, p_leaf=0.4, rng=random):
     """Typed half-and-half generator, usable as DEAP `expr` (also inside gp.mutUniform).
 
     DEAP's genFull/genGrow raise IndexError when a typed branch reaches the depth limit
     at a type without terminals (Bool, Z, Rule here); this one never picks a primitive
     whose arguments cannot be completed within the remaining depth.
+    rng: the random module (default) or a random.Random of its own.
     """
     type_ = type_ or pset.ret
-    height = max(random.randint(min_, max_), MIN_DEPTH[type_])
-    full = random.random() < 0.5
+    height = max(rng.randint(min_, max_), MIN_DEPTH[type_])
+    full = rng.random() < 0.5
     expr, stack = [], [(0, type_)]
     while stack:
         depth, t = stack.pop()
         room = height - depth
         leaves = pset.terminals[t]
         prims = [p for p in pset.primitives[t] if all(MIN_DEPTH[a] < room for a in p.args)]
-        if leaves and (not prims or room <= 0 or (not full and depth >= min_ and random.random() < p_leaf)):
-            expr.append(random.choice(leaves))
+        if leaves and (not prims or room <= 0 or (not full and depth >= min_ and rng.random() < p_leaf)):
+            expr.append(rng.choice(leaves))
         else:
-            p = random.choice(prims)
+            p = rng.choice(prims)
             expr.append(p)
             stack.extend((depth + 1, a) for a in reversed(p.args))
     return expr
+
+
+def cx_one_point(ind1, ind2, rng=random):
+    """gp.cxOnePoint with a reproducible choice of type. DEAP draws the crossover type from
+    a set of classes, whose order follows their memory addresses, so the same seed gives
+    another run after any unrelated change to the program; here the types are sorted."""
+    if len(ind1) < 2 or len(ind2) < 2:
+        return ind1, ind2
+    types1, types2 = {}, {}
+    for idx, node in enumerate(ind1[1:], 1):
+        types1.setdefault(node.ret, []).append(idx)
+    for idx, node in enumerate(ind2[1:], 1):
+        types2.setdefault(node.ret, []).append(idx)
+    common = sorted(set(types1) & set(types2), key=lambda t: t.__name__)
+    if common:
+        t = rng.choice(common)
+        slice1 = ind1.searchSubtree(rng.choice(types1[t]))
+        slice2 = ind2.searchSubtree(rng.choice(types2[t]))
+        ind1[slice1], ind2[slice2] = ind2[slice2], ind1[slice1]
+    return ind1, ind2
 
 
 def n_numbers(tree):
@@ -408,6 +429,29 @@ def canonical_slots(tree):
             node = PSET.mapping[renamed[node.name]]
         out.append(node)
     return gp.PrimitiveTree(out)
+
+
+def lift(tree):
+    """Concrete rule -> (template, values): written numbers become placeholders so that an
+    optimizer can retune them (arm 4 finalists; arm 3 when the LLM writes numbers anyway).
+    Equal values of one type share a name, as RSIStrategy shares rsi_period; values beyond
+    the available names stay fixed numbers. Binding the values back gives the same rule."""
+    used = set(slot_names(tree))
+    free = {t: [n for n, tt in SLOT_TYPE_BY_NAME.items() if tt is t and n not in used] for t in SLOTS}
+    names, values, out = {}, {}, []
+    for node in tree:
+        if isinstance(node, gp.Terminal) and node.ret in SLOTS and not _is_slot(node):
+            key = (node.ret, node.value)
+            if key not in names and free[node.ret]:
+                names[key] = free[node.ret].pop(0)
+                values[names[key]] = node.value
+            if key in names:
+                node = PSET.mapping[names[key]]
+        out.append(node)
+    lifted = gp.PrimitiveTree(out)
+    template = canonical_slots(lifted)
+    rename = {a.name: b.name for a, b in zip(lifted, template) if _is_slot(a)}
+    return template, {rename[n]: v for n, v in values.items()}
 
 
 def _numbers(tree, params):
