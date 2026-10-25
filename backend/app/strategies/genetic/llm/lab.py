@@ -10,7 +10,6 @@ asked for it: a GP individual, an LLM proposal, an Optuna trial or a jitter prob
 verifier. Probes with doubled costs or a one-bar delay reuse the stored positions and are
 free. The final choice (select_final) is the same for every arm and spends nothing.
 """
-
 from __future__ import annotations
 
 import hashlib
@@ -65,10 +64,11 @@ class BudgetExhausted(Exception):
     pass
 
 
-def segment_stats(pos, close, sl, cost_bps=COST_BPS):
+def segment_stats(pos, close, sl, cost_bps=None):
     """Statistics of a long/flat position series on one window. Returns are computed on the
-    whole series first, so a position carried into the window is priced correctly."""
-    net = sg.net_returns(pos, close, cost_bps)[sl]
+    whole series first, so a position carried into the window is priced correctly.
+    cost_bps and the annualization follow lab.COST_BPS and lab.BARS_PER_YEAR at call time."""
+    net = sg.net_returns(pos, close, COST_BPS if cost_bps is None else cost_bps)[sl]
     gross = sg.net_returns(pos, close, 0.0)[sl]
     p = pos[sl]
     trades = sg.n_trades(p)
@@ -113,8 +113,8 @@ class Ledger:
     def positions(self, row):
         return np.unpackbits(row["bits"], count=self.n_search).astype(float)
 
-    def returns(self, row, cost_bps=COST_BPS):
-        return sg.net_returns(self.positions(row), self.close, cost_bps)
+    def returns(self, row, cost_bps=None):
+        return sg.net_returns(self.positions(row), self.close, COST_BPS if cost_bps is None else cost_bps)
 
     def run(self, tree, params=(), role="candidate"):
         """Search fitness of a rule (Sharpe on train): the objective of every arm."""
@@ -197,17 +197,17 @@ def jittered(rule, n, size, rng):
     return out
 
 
-def sharpe_diff_se(a, b, periods_per_year=BARS_PER_YEAR):
+def sharpe_diff_se(a, b, periods_per_year=None):
     """Standard error of the difference of two annualized Sharpe ratios measured on the same
     bars (Jobson & Korkie 1981, with Memmel's 2003 correction). Small for near copies of a
-    rule, large for rules that behave differently."""
+    rule, large for rules that behave differently. Annualized with lab.BARS_PER_YEAR by default."""
     a, b = np.asarray(a, dtype=float), np.asarray(b, dtype=float)
     if a.std() == 0 or b.std() == 0:
         return 0.0
     rho = float(np.corrcoef(a, b)[0, 1])
     sa, sb = a.mean() / a.std(ddof=1), b.mean() / b.std(ddof=1)
     var = (2 * (1 - rho) + 0.5 * (sa ** 2 + sb ** 2 - 2 * sa * sb * rho ** 2)) / len(a)
-    return math.sqrt(max(var, 0.0) * periods_per_year)
+    return math.sqrt(max(var, 0.0) * (periods_per_year or BARS_PER_YEAR))
 
 
 @dataclass
@@ -314,44 +314,69 @@ def hold_out(data, rule, n_search=N_SEARCH):
     return sg.sharpe(r, BARS_PER_YEAR), sg.n_trades(pos[n_search:])
 
 
-def report(name, data, ledger, note=""):
-    """The rule the arm hands in (select_final), its hold-out Sharpe and its DSR under two
-    conventions for (N, V), with the planted rule of the synthetic data as a reference."""
+def summarize(data, ledger, reference=None):
+    """What an arm hands in and how it holds up, as a flat dict: the chosen rule (select_final),
+    its train, validation and hold-out Sharpe, and its DSR under two conventions for (N, V).
+    The ledger variance mixes estimation noise with real differences between rules (cost-crushed
+    junk), which raises the bar for everyone; V = 1/T is the variance under the null.
+    reference: an optional rule text measured the same way (the planted rule of synthetic data).
+    Spends no budget."""
     rows = [r for r in ledger.rows.values() if r["role"] != "probe"]
-    print(f"\n== {name}: {note + ', ' if note else ''}{len(ledger.structures)} structures, "
-          f"{len(rows)} rules backtested, {ledger.used} budget units")
+    out = {"structures": len(ledger.structures), "rules": len(rows), "budget used": ledger.used, "rule": None}
     chosen = select_final(ledger)
     if chosen is None:
-        print("no rule passed the gates")
-        return
+        return out
     row, verdict = chosen
     n = ledger.n_search
-
-    def search_returns(rule):
-        r = sg.net_returns(sg.positions(*ledger.search.signals(rule)), ledger.close, COST_BPS)
-        return r, float(r.mean() / r.std(ddof=1))
-
     distinct = {}                     # one Sharpe per distinct position path among tradable rules
     for r in rows:
         if r["stats"]["train"]["trades"] >= MIN_TRADES["train"]:
             distinct.setdefault(r["behaviour"], r["sr_obs"])
-    # The ledger variance mixes estimation noise with real differences between rules
-    # (cost-crushed junk), which raises the bar for everyone; V = 1/T is the null's variance.
-    conventions = {"null V=1/T, distinct tradable": (len(distinct), 1.0 / (n - 1))}
-    if len(rows) >= 2:
-        conventions["ledger V, all rules"] = (len(rows), float(np.var([r["sr_obs"] for r in rows], ddof=1)))
-    planted = sg.parse(PLANTED_RULE)
-    r_best, sr_best = search_returns(row["rule"])
-    r_ref, sr_ref = search_returns(planted)
+    r_best = ledger.returns(row)
+    sr_best = float(r_best.mean() / r_best.std(ddof=1))
     ho, ho_trades = hold_out(data, row["rule"], n)
-    ref_ho, _ = hold_out(data, planted, n)
     s = row["stats"]
-    print(f"chosen rule:  {sg.to_text(row['rule'])}")
-    print(f"train Sharpe {s['train']['sharpe']:.2f} ({s['train']['trades']} trades), validation "
-          f"{s['val']['sharpe']:.2f} ({s['val']['trades']} trades), Q {verdict.q:.2f}")
-    print(f"hold-out Sharpe {ho:.2f} ({ho_trades} trades)")
-    print(f"planted rule: search Sharpe {sg.sharpe(r_ref, BARS_PER_YEAR):.2f}, hold-out Sharpe {ref_ho:.2f}")
+    out.update({"rule": sg.to_text(row["rule"]), "train sharpe": s["train"]["sharpe"],
+                "train trades": s["train"]["trades"], "val sharpe": s["val"]["sharpe"],
+                "val trades": s["val"]["trades"], "Q": verdict.q, "hold-out sharpe": ho,
+                "hold-out trades": ho_trades, "distinct tradable": len(distinct)})
+    conventions = {}
+    if len(distinct) >= 2:
+        conventions["null V"] = (len(distinct), 1.0 / (n - 1))
+    if len(rows) >= 2:
+        v = float(np.var([r["sr_obs"] for r in rows], ddof=1))
+        if v > 0:
+            conventions["ledger V"] = (len(rows), v)
     for label, (k, v) in conventions.items():
-        if k >= 2 and v > 0:
-            print(f"DSR [{label}, N={k}]: chosen {deflated_sharpe(sr_best, k, v, r_best):.3f}, "
-                  f"planted rule {deflated_sharpe(sr_ref, k, v, r_ref):.3f}")
+        out[f"DSR {label}"] = deflated_sharpe(sr_best, k, v, r_best)
+        out[f"N {label}"] = k
+    if reference:
+        ref = sg.parse(reference)
+        r_ref = sg.net_returns(sg.positions(*ledger.search.signals(ref)), ledger.close, COST_BPS)
+        out["reference search sharpe"] = sg.sharpe(r_ref, BARS_PER_YEAR)
+        out["reference hold-out sharpe"] = hold_out(data, ref, n)[0]
+        if r_ref.std() > 0:
+            for label, (k, v) in conventions.items():
+                out[f"reference DSR {label}"] = deflated_sharpe(float(r_ref.mean() / r_ref.std(ddof=1)), k, v, r_ref)
+    return out
+
+
+def report(name, data, ledger, note="", reference=PLANTED_RULE):
+    """Print summarize(): the rule the arm hands in, its hold-out Sharpe and its DSR."""
+    s = summarize(data, ledger, reference)
+    print(f"\n== {name}: {note + ', ' if note else ''}{s['structures']} structures, "
+          f"{s['rules']} rules backtested, {s['budget used']} budget units")
+    if s["rule"] is None:
+        print("no rule passed the gates")
+        return
+    print(f"chosen rule:  {s['rule']}")
+    print(f"train Sharpe {s['train sharpe']:.2f} ({s['train trades']} trades), validation "
+          f"{s['val sharpe']:.2f} ({s['val trades']} trades), Q {s['Q']:.2f}")
+    print(f"hold-out Sharpe {s['hold-out sharpe']:.2f} ({s['hold-out trades']} trades)")
+    if reference:
+        print(f"reference rule: search Sharpe {s['reference search sharpe']:.2f}, "
+              f"hold-out Sharpe {s['reference hold-out sharpe']:.2f}")
+    for label in ("null V", "ledger V"):
+        if f"DSR {label}" in s:
+            ref = f", reference rule {s[f'reference DSR {label}']:.3f}" if f"reference DSR {label}" in s else ""
+            print(f"DSR [{label}, N={s[f'N {label}']}]: chosen {s[f'DSR {label}']:.3f}{ref}")

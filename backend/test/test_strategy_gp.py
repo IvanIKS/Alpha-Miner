@@ -2,7 +2,11 @@
 
 Run: pytest -q test_strategy_gp.py
 """
+import os
 import random
+import subprocess
+import sys
+import types
 from dataclasses import dataclass, field
 
 import numpy as np
@@ -100,6 +104,38 @@ def test_reused_placeholder_ties_values():
     assert sg.to_text(sg.canonical_slots(renamed)) == sg.to_text(template)
 
 
+def test_lift_turns_numbers_into_tied_placeholders():
+    rule = sg.parse("long_flat(gt(close, lag(rmax(high, 55), 1)), gt(lag(rmin(low, 20), 1), close))")
+    template, values = sg.lift(rule)
+    assert sg.to_text(template) == ("long_flat(gt(close, lag(rmax(high, W1), LAG1)), "
+                                    "gt(lag(rmin(low, W2), LAG1), close))")      # both lags are 1: one value
+    assert values == {"W1": 55, "LAG1": 1, "W2": 20}
+    assert sg.to_text(sg.bind(template, values)) == sg.to_text(rule)
+    many = sg.parse("long_flat(and_(gt(sma(close, 5), sma(close, 10)), gt(sma(close, 20), sma(close, 40))), "
+                    "gt(open, close))")
+    template, values = sg.lift(many)                  # four windows, three names: one stays fixed
+    assert sg.slot_names(template) == ["W1", "W2", "W3"] and "40" in sg.to_text(template)
+
+
+def test_crossover_does_not_depend_on_memory_layout():
+    """DEAP's cxOnePoint draws the type from a set of classes; their order follows memory
+    addresses, so one extra object allocated at start-up changes a seeded run."""
+    script = ("import sys, random, hashlib\n"
+              "junk = [type(f'J{i}', (), {}) for i in range(int(sys.argv[1]))]\n"
+              "from deap import gp\n"
+              "import strategy_gp as sg\n"
+              "random.seed(0)\n"
+              "pop = [gp.PrimitiveTree(sg.gen_tree(min_=2, max_=4)) for _ in range(20)]\n"
+              "for _ in range(200):\n"
+              "    i, j = random.sample(range(20), 2)\n"
+              "    pop[i], pop[j] = sg.cx_one_point(gp.PrimitiveTree(pop[i]), gp.PrimitiveTree(pop[j]))\n"
+              "print(hashlib.md5('|'.join(sg.to_text(t) for t in pop).encode()).hexdigest())\n")
+    here = os.path.dirname(os.path.abspath(__file__))
+    runs = {subprocess.run([sys.executable, "-c", script, str(n)], cwd=here, capture_output=True,
+                           text=True, check=True).stdout for n in (0, 1, 7)}
+    assert len(runs) == 1
+
+
 def test_binding_keeps_rules_inside_limits():
     """Limits count numeric positions, so an optimized template is still a valid rule
     for allow_slots=False (what RuleStrategy parses)."""
@@ -146,8 +182,39 @@ class _Context:
     portfolio: _Portfolio
 
 
+def _install_platform_stubs():
+    class Strategy:
+        def __init__(self, name, description):
+            self.name, self.description = name, description
+
+    @dataclass
+    class SimpleSignal:
+        symbol: str
+        quantity: float
+        price: float
+        side: str
+
+    class MustBePandasDataFrame:
+        pass
+
+    class MustBeBinanceOHLCVData:
+        pass
+
+    for name in ("app", "app.strategies", "app.strategies.rules", "app.execution"):
+        sys.modules.setdefault(name, types.ModuleType(name))
+    for name, objects in (("app.strategies.Strategy", [Strategy]),
+                          ("app.execution.signal", [SimpleSignal]),
+                          ("app.strategies.rules.strategy_requirements",
+                           [MustBePandasDataFrame, MustBeBinanceOHLCVData])):
+        mod = types.ModuleType(name)
+        for obj in objects:
+            setattr(mod, obj.__name__, obj)
+        sys.modules[name] = mod
+
+
 def _run_event_driven(rule_text, data):
-    from app.strategies.genetic.rule_strategy import RuleStrategy
+    _install_platform_stubs()
+    from rule_strategy import RuleStrategy
     strat = RuleStrategy(rule=rule_text)
     pf = _Portfolio()
     held = np.zeros(len(data["close"]))
@@ -217,7 +284,7 @@ def test_deap_variation_keeps_trees_valid():
         creator.create("RuleFitness", base.Fitness, weights=(1.0,))
         creator.create("RuleTree", gp.PrimitiveTree, fitness=creator.RuleFitness)
     tb = base.Toolbox()
-    tb.register("mate", gp.cxOnePoint)
+    tb.register("mate", sg.cx_one_point)
     tb.register("mut_uniform", gp.mutUniform, expr=lambda pset, type_: sg.gen_tree(pset, 0, 2, type_), pset=sg.PSET)
     tb.register("mut_node", gp.mutNodeReplacement, pset=sg.PSET)
     for name in ("mate", "mut_uniform", "mut_node"):

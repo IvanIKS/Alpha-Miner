@@ -10,9 +10,10 @@ from collections import deque
 import numpy as np
 
 import app.strategies.genetic.strategy_gp as sg
+from app.strategies.rules.strategy_requirements import MustBePandasDataFrame, MustBeBinanceOHLCVData
+
 from app.strategies.Strategy import Strategy
 from app.execution.signal import SimpleSignal
-from app.strategies.rules.strategy_requirements import MustBePandasDataFrame, MustBeBinanceOHLCVData
 
 DEFAULT_RULE = "long_flat(osc_below(rsi(close, 8), 36), osc_above(rsi(close, 8), 62))"
 
@@ -41,7 +42,7 @@ class RuleStrategy(Strategy):
             return []
 
         data = {f: np.fromiter(self.bars[f], dtype=float) for f in self.fields}
-        entry, exit_ = sg.Evaluator(data, cache_size=0).signals(self.tree)
+        entry, exit_ = sg.Evaluator(data).signals(self.tree)        # a fresh cache: repeated subtrees once
         enter, leave = entry[-1] == 1.0, exit_[-1] == 1.0     # unknown (NaN) never acts
         price = data["close"][-1]
         portfolio = context.portfolio
