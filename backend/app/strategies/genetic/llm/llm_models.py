@@ -9,6 +9,7 @@ Included:
   ClaudeModel            Anthropic Messages API (the default model of the generator);
   OpenAICompatibleModel  any /v1/chat/completions endpoint: OpenAI, OpenRouter or a local
                          server (llama.cpp, vLLM, Ollama, LM Studio);
+  GeminiModel            Google Gemini via the google-genai SDK;
   RecordedModel          wraps any model, logs every call to JSONL and replays a run exactly.
 
 A new adapter is a subclass with a `name` and a `complete` method, for example:
@@ -124,6 +125,50 @@ class OpenAICompatibleModel(ChatModel):
                           (usage.prompt_tokens or 0) if usage else 0,
                           (usage.completion_tokens or 0) if usage else 0,
                           stop_reason=choice.finish_reason or "")
+
+
+class GeminiModel(ChatModel):
+    """Google Gemini via the google-genai SDK: pip install google-genai, set GEMINI_API_KEY.
+
+    Gemini uses "user"/"model" roles; "assistant" is mapped to "model" automatically.
+    The system prompt is passed as system_instruction. Seed is not supported by the API and
+    is silently ignored."""
+
+    def __init__(self, model="gemini-2.0-flash", api_key=None, temperature=1.0,
+                 max_tokens=8192, client=None):
+        if client is None:
+            from google import genai
+            client = genai.Client(
+                api_key=api_key or os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY"))
+        self.client, self.name = client, model
+        self.temperature, self.max_tokens = temperature, max_tokens
+
+    def complete(self, system, messages, seed=None):
+        from google.genai import types
+        contents = [
+            types.Content(role="model" if m.role == "assistant" else m.role,
+                          parts=[types.Part(text=m.content)])
+            for m in messages
+        ]
+        resp = self.client.models.generate_content(
+            model=self.name,
+            contents=contents,
+            config=types.GenerateContentConfig(
+                system_instruction=system,
+                temperature=self.temperature,
+                max_output_tokens=self.max_tokens,
+            ),
+        )
+        text = resp.text or ""
+        usage = resp.usage_metadata
+        candidate = resp.candidates[0] if resp.candidates else None
+        stop_reason = candidate.finish_reason.name if candidate and candidate.finish_reason else ""
+        return Completion(
+            text,
+            input_tokens=getattr(usage, "prompt_token_count", 0) or 0,
+            output_tokens=getattr(usage, "candidates_token_count", 0) or 0,
+            stop_reason=stop_reason,
+        )
 
 
 class ReplayMismatch(RuntimeError):
