@@ -95,9 +95,12 @@ def backtest_task(self, strategy_name : str, strategy_dict : dict, start_date : 
         engine = BacktestEngine()
         result = engine.run(strategy, data_provider, money_amount)
 
+        buy_and_hold = _compute_buy_and_hold(data_provider, money_amount)
+        result.buy_and_hold_curve = buy_and_hold
+
         results_json = result.to_json()
         equity_json = json.dumps(_downsample(result.equity_curve))
-        buy_and_hold_json = json.dumps(_downsample(_compute_buy_and_hold(data_provider, money_amount)))
+        buy_and_hold_json = json.dumps(_downsample(buy_and_hold))
 
         with db_session() as db:
             backtest = db.execute(
