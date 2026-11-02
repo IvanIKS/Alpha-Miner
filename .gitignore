@@ -22,7 +22,7 @@ __pycache__/
 .env.local
 
 # Backtest data (can be large and regenerated)
-backtest
+/backtest
 
 # Editor directories and files
 .vscode/*
