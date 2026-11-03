@@ -48,6 +48,21 @@ class Completion:
     stop_reason: str = ""
 
 
+# USD per million tokens: input, output, 5-minute cache write, cache read. Claude API prices as
+# listed on the pricing page in November 2026 (Haiku 5.5: prompts up to 100,000 tokens).
+PRICES = {"claude-sonnet-5-5": (2.0, 10.0, 2.5, 0.10),
+          "claude-haiku-5-5": (0.10, 0.50, 0.125, 0.01),
+          "claude-opus-5-5": (4.0, 20.0, 5.0, 0.20)}
+
+
+def cost_usd(usage, prices):
+    """Spend implied by token counters (any mapping with input_tokens, output_tokens,
+    cache_write_tokens and cache_read_tokens, e.g. Generator.stats) at prices per million tokens."""
+    p_in, p_out, p_write, p_read = prices
+    return (usage.get("input_tokens", 0) * p_in + usage.get("output_tokens", 0) * p_out
+            + usage.get("cache_write_tokens", 0) * p_write + usage.get("cache_read_tokens", 0) * p_read) / 1e6
+
+
 class ChatModel(abc.ABC):
     """What the generator calls. Messages alternate user/assistant and end with a user turn."""
 

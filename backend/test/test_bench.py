@@ -11,8 +11,8 @@ from types import SimpleNamespace
 import numpy as np
 import pytest
 
-import notebooks.experiment.arm0_random as arm0_random
-import app.strategies.genetic.demo_gp_optuna as arm5
+import app.strategies.genetic.experiment.arm0_random as arm0_random
+import app.strategies.genetic.experiment.arm5_demo_gp_optuna as arm5
 import app.strategies.genetic.llm.lab as lab
 import app.strategies.genetic.platform_bridge as pb
 import app.strategies.genetic.strategy_gp as sg

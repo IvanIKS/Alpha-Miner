@@ -424,7 +424,7 @@ class Generator:
 
     def __init__(self, arm, model, data, budget=2400, *, k=10, candidates=4, repairs=1, reserve=0.2,
                  finalists=5, escalate_after=2, lines=None, first_level=None, max_calls=None,
-                 patience=12, seed=0, n_search=lab.N_SEARCH, verifier_options=None):
+                 patience=12, seed=0, n_search=lab.N_SEARCH, verifier_options=None, bars="hourly bars"):
         if arm not in (1, 3, 4):
             raise ValueError("the LLM arms are 1, 3 and 4")
         self.arm, self.model, self.budget, self.k, self.candidates = arm, model, budget, k, candidates
@@ -440,7 +440,7 @@ class Generator:
             raise ValueError(f"unknown classic strategies: {unknown}")
         self.ledger = lab.Ledger(data, budget, n_search=n_search)
         self.verifier = lab.Verifier(self.ledger, **(verifier_options or {}))
-        self.system = system_prompt(arm, self.verifier.max_dd)
+        self.system = system_prompt(arm, self.verifier.max_dd, bars)
         self.memory = Memory()
         self.lines, self.events, self.proposed = [], [], {}
         self.stats = Counter()
@@ -470,12 +470,12 @@ class Generator:
         for name in self.line_names:
             entry = self._fit(sg.parse(sg.CLASSICS[name]))
             entry.verdict = self.verifier.verify(entry.row)
-            self.lines.append(Line(name, entry, self.levels.index(self.first_level)))
+            self.lines.append(Line(name, entry, self.levels.index(self.first_level), start_q=entry.q))
 
     def _round(self, line):
         line.visits += 1
         base = line.incumbent
-        if line.incubated and line.visits % 3 == 0:          # now and then, edit a promising variant
+        if line.incubated and line.visits % 3 == 0:  # now and then, edit a promising variant
             base = max(line.incubated, key=lambda e: e.q)
         ev = evidence(self.ledger, base)
         flags = tuple(diagnose(ev))
@@ -539,7 +539,7 @@ class Generator:
             event.update(status="invalid", error=str(err))
             return str(err), False
         if self.arm == 3:
-            tree, _ = sg.lift(tree)            # numbers written anyway are tuned as well
+            tree, _ = sg.lift(tree)  # numbers written anyway are tuned as well
         edit = analyse_edit(base.template, tree)
         event.update(level=edit.level, changed=list(edit.layers), syntactic_drift=_r(edit.syntactic))
         problems = contract_problems(p, edit, plan, self.arm)
@@ -589,7 +589,7 @@ class Generator:
             bound = sg.bind(template, values)
             row = self.ledger.backtest(bound, role="trial")
             return Entry(bound, template, dict(zip(sg.slot_names(template), values)), row)
-        self.ledger.structures.add(sg.to_text(sg.lift(tree)[0]))   # rules that differ only in numbers
+        self.ledger.structures.add(sg.to_text(sg.lift(tree)[0]))  # rules that differ only in numbers
         return Entry(tree, tree, {}, self.ledger.backtest(tree, role="candidate"))
 
     def _promote(self, line, entry, base):
@@ -608,7 +608,7 @@ class Generator:
                 jobs.append((line, template, start))
         if not jobs:
             return
-        trials = (self.budget - self.ledger.used) // len(jobs) + 1       # the first trial is the model's rule
+        trials = (self.budget - self.ledger.used) // len(jobs) + 1  # the first trial is the model's rule
         try:
             for line, template, start in jobs:
                 self.stats["calibrated"] += 1
@@ -653,6 +653,12 @@ class Generator:
         out += ["", f"Propose {self.candidates} candidates."]
         return "\n".join(out)
 
+    def lines_table(self):
+        """One row per line: the classic it started from, its current rule, Q then and now."""
+        return [{"line": ln.name, "start rule": sg.CLASSICS[ln.name], "start Q": _r(ln.start_q),
+                 "rule": sg.to_text(ln.incumbent.tree), "Q": _r(ln.incumbent.q), "adopted": ln.adopted,
+                 "level": self.levels[ln.level], "incubated": len(ln.incubated)} for ln in self.lines]
+
     def best(self):
         """The best current rule over all lines (by Q)."""
         return max((ln.incumbent for ln in self.lines), key=lambda e: e.q, default=None)
@@ -681,6 +687,30 @@ class Generator:
         lines = [{"line": ln.name, "rule": sg.to_text(ln.incumbent.tree), "q": _r(ln.incumbent.q),
                   "adopted": ln.adopted, "level": self.levels[ln.level]} for ln in self.lines]
         path.with_name(path.stem + ".lines.json").write_text(json.dumps(lines, indent=2), encoding="utf-8")
+
+
+# ------------------------------------------------------------ analysis --
+def status_counts(events):
+    """How the proposals of a run ended: invalid, format, contract, repeat, ADOPT, INCUBATE, ..."""
+    return Counter(e["status"] for e in events)
+
+
+def first_attempt_validity(events):
+    """Share of the proposals of first replies (not repair turns) that the grammar accepted."""
+    first = [e for e in events if e["attempt"] == 0]
+    return sum(e["status"] not in ("invalid", "format") for e in first) / len(first) if first else math.nan
+
+
+def prediction_accuracy(events):
+    """Per predicted move, the share of tested proposals where the model's prediction came true."""
+    right, total = Counter(), Counter()
+    for e in events:
+        actual = e.get("actual")
+        if actual:
+            for move, guess in e["expected"].items():
+                total[move] += 1
+                right[move] += guess == actual[move]
+    return {m: right[m] / total[m] for m in MOVES if total[m]}
 
 
 # ------------------------------------------------------- offline model --
@@ -747,7 +777,7 @@ class MockModel(lm.ChatModel):
                 tree = replace_condition(tree, part, self.rng)
         if self.arm == 3:
             return sg.canonical_slots(tree)
-        return sg.bind(tree, sg.random_params(tree, self.rng))      # numbers for new placeholders
+        return sg.bind(tree, sg.random_params(tree, self.rng))  # numbers for new placeholders
 
 
 # ------------------------------------------------------------------ CLI --

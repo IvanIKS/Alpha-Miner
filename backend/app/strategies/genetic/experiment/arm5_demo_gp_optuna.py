@@ -35,22 +35,10 @@ def evolve(data, seed, budget=2400, pop_size=30, k=10, n_search=lab.N_SEARCH):
     for name in ("mate", "mut_uniform", "mut_node"):
         tb.decorate(name, gp.staticLimit(key=sg.limit_excess, max_value=0))
 
-    def fresh():
-        while True:
-            ind = creator.RuleTree(sg.gen_tree(min_=2, max_=4))
-            if not sg.limit_excess(ind):
-                return ind
-
-    def evaluate(ind):
-        for i, node in enumerate(sg.canonical_slots(ind)):   # W2-only and W1-only copies: one structure
-            ind[i] = node                                     # PrimitiveTree rejects ind[:] = ...
-        fit, ind.params = lab.tune(ind, ledger, k)
-        return (fit,)
-
     pop, generations = [fresh() for _ in range(pop_size)], 0
     try:
         for ind in pop:
-            ind.fitness.values = evaluate(ind)
+            ind.fitness.values = evaluate(ind, ledger, k)
         while True:
             generations += 1
             offspring = [tb.clone(i) for i in tools.selTournament(pop, pop_size - 2, tournsize=3)]
@@ -65,11 +53,23 @@ def evolve(data, seed, budget=2400, pop_size=30, k=10, n_search=lab.N_SEARCH):
                     del offspring[i].fitness.values
             for ind in offspring:
                 if not ind.fitness.valid:
-                    ind.fitness.values = evaluate(ind)
+                    ind.fitness.values = evaluate(ind, ledger, k)
             pop = tools.selBest(pop, 2) + offspring
     except lab.BudgetExhausted:
         pass
     return ledger, generations
+
+def fresh():
+    while True:
+        ind = creator.RuleTree(sg.gen_tree(min_=2, max_=4))
+        if not sg.limit_excess(ind):
+            return ind
+
+def evaluate(ind, ledger, k):
+    for i, node in enumerate(sg.canonical_slots(ind)):   # W2-only and W1-only copies: one structure
+        ind[i] = node                                     # PrimitiveTree rejects ind[:] = ...
+    fit, ind.params = lab.tune(ind, ledger, k)
+    return (fit,)
 
 
 if __name__ == "__main__":
