@@ -305,7 +305,7 @@ class Memory:
 
 
 # -------------------------------------------------------------- prompts --
-def system_prompt(arm, max_dd=0.35):
+def system_prompt(arm, max_dd=0.35, bars="hourly bars"):
     levels = [("repair", "change numbers only"),
               ("bridge", "change the structure of one part, the entry or the exit: add, remove or replace a condition"),
               ("redesign", "change the structure of both parts, keeping the mechanism"),
@@ -317,7 +317,7 @@ def system_prompt(arm, max_dd=0.35):
                "placeholder twice means one shared value."
                if arm == 3 else "Write every number yourself; placeholders such as W1 are not allowed.")
     return "\n".join([
-        "You improve long/flat trading rules for one market traded on hourly bars. You never see the data: "
+        f"You improve long/flat trading rules for one market traded on {bars}. You never see the data: "
         "a program backtests every rule you propose on a search period split into an earlier train part and a "
         "later validation part, and reports evidence. A final period is kept for the test and never shown.",
         "",
@@ -416,6 +416,7 @@ class Line:
     visits: int = 0
     adopted: int = 0
     incubated: list = field(default_factory=list)
+    start_q: float = -math.inf      # Q of the classic this line started from, for the report
 
 
 class Generator:
