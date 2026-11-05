@@ -23,9 +23,14 @@ if not hasattr(creator, "RuleFitness"):
     creator.create("RuleTree", gp.PrimitiveTree, fitness=creator.RuleFitness, params=list)
 
 
-def evolve(data, seed, budget=2400, pop_size=30, k=10, n_search=lab.N_SEARCH):
+def evolve(data, seed, budget=2400, pop_size=30, k=10, n_search=lab.N_SEARCH, tune_fn=None):
     """Arm 5 on one dataset: returns the ledger (search window = the first n_search bars) and
-    the number of generations."""
+    the number of generations.
+
+    `tune_fn(template, ledger, k) -> (fitness, values)` fills the slots of a GP structure and
+    is the only thing that separates the arms that share this engine: arm 5 leaves the default
+    (`lab.tune`, Optuna); arm 2 passes an LLM tuner with the same contract."""
+    tune_fn = tune_fn or lab.tune
     random.seed(seed)
     ledger = lab.Ledger(data, budget, n_search=n_search)
     tb = base.Toolbox()
@@ -38,7 +43,7 @@ def evolve(data, seed, budget=2400, pop_size=30, k=10, n_search=lab.N_SEARCH):
     pop, generations = [fresh() for _ in range(pop_size)], 0
     try:
         for ind in pop:
-            ind.fitness.values = evaluate(ind, ledger, k)
+            ind.fitness.values = evaluate(ind, ledger, k, tune_fn)
         while True:
             generations += 1
             offspring = [tb.clone(i) for i in tools.selTournament(pop, pop_size - 2, tournsize=3)]
@@ -53,7 +58,7 @@ def evolve(data, seed, budget=2400, pop_size=30, k=10, n_search=lab.N_SEARCH):
                     del offspring[i].fitness.values
             for ind in offspring:
                 if not ind.fitness.valid:
-                    ind.fitness.values = evaluate(ind, ledger, k)
+                    ind.fitness.values = evaluate(ind, ledger, k, tune_fn)
             pop = tools.selBest(pop, 2) + offspring
     except lab.BudgetExhausted:
         pass
@@ -65,10 +70,10 @@ def fresh():
         if not sg.limit_excess(ind):
             return ind
 
-def evaluate(ind, ledger, k):
+def evaluate(ind, ledger, k, tune_fn=lab.tune):
     for i, node in enumerate(sg.canonical_slots(ind)):   # W2-only and W1-only copies: one structure
         ind[i] = node                                     # PrimitiveTree rejects ind[:] = ...
-    fit, ind.params = lab.tune(ind, ledger, k)
+    fit, ind.params = tune_fn(ind, ledger, k)
     return (fit,)
 
 
