@@ -9,7 +9,11 @@ celery = Celery(
     "tasks",
     broker=broker_url,
     backend=result_backend,
-    include=["app.background_tasks.tasks.backfill", "app.background_tasks.tasks.backtest"]
+    include=[
+        "app.background_tasks.tasks.backfill",
+        "app.background_tasks.tasks.backtest",
+        "app.background_tasks.tasks.prediction",
+    ]
 )
 
 celery.conf.update(
