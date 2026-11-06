@@ -89,9 +89,18 @@ BEGIN
 
     IF v_merged IS NOT NULL THEN
         FOR i IN 1 .. array_length(v_merged, 1) LOOP
-            -- Only return gaps that have a duration
-            IF v_merged[i].gap_start < v_merged[i].gap_end THEN
-                RETURN NEXT v_merged[i];
+            -- gap_end from the recursion is the LAST missing candle (inclusive).
+            -- The backfill adapter fetches the half-open range [gap_start, gap_end),
+            -- so extend the end by one interval to ensure that last missing candle
+            -- is actually fetched. This also gives an isolated single missing candle
+            -- a positive-width range instead of collapsing to (T, T), which the old
+            -- "gap_start < gap_end" filter used to silently drop (so the candle was
+            -- never backfilled and the gap kept being re-detected).
+            IF v_merged[i].gap_start <= v_merged[i].gap_end THEN
+                RETURN NEXT ROW(
+                    v_merged[i].gap_start,
+                    v_merged[i].gap_end + v_interval
+                )::gap_range;
             END IF;
         END LOOP;
     END IF;
