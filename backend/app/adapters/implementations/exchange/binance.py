@@ -6,7 +6,7 @@ import time
 
 from psycopg2._psycopg import Decimal
 
-from app.adapters.adapter import Adapter
+from app.adapters.adapter import ExchangeAdapter
 from app.data.database.session import db_session
 from app.data.database.models import OHLCV
 from app.execution.commission import Commission
@@ -15,7 +15,7 @@ from app.utils.timeframe import get_candles_left
 
 
 
-class BinanceAdapter(Adapter):
+class BinanceAdapter(ExchangeAdapter):
     def __init__(self):
         dotenv_path = os.path.join(os.path.dirname(__file__), '.env')
         if os.path.exists(dotenv_path):

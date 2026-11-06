@@ -1,5 +1,5 @@
 from app.adapters.adapter import Adapter
-from app.adapters.implementations.binance import BinanceAdapter
+from app.adapters.implementations.exchange.binance import BinanceAdapter
 
 ADAPTERS = {
     "binance": BinanceAdapter()
