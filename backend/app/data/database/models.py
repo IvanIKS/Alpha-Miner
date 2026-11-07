@@ -81,6 +81,9 @@ class OHLCV(Base):
     low = Column(Numeric, nullable=False)
     close = Column(Numeric, nullable=False)
     volume = Column(Numeric, nullable=False)
+    # True when the exchange has no candle for this timestamp (an outage / no-trade
+    # hour) and we synthesised a flat bar by forward-filling the previous close.
+    forward_filled = Column(Boolean, nullable=False, server_default="false", default=False)
 
     __table_args__ = (
         PrimaryKeyConstraint("timestamp", "exchange", "symbol", "timeframe"),

@@ -144,12 +144,6 @@ BEGIN
         RETURN ARRAY[ROW(p_start, p_end)::gap_range];
     END IF;
 
-    -- Base Case 3: Single interval left but expected != present (and present isn't 0)
-    -- This handles edge cases where expected = 1 but timestamp doesn't match perfectly.
-    IF v_expected_count = 1 THEN
-        RETURN ARRAY[ROW(p_start, p_end)::gap_range];
-    END IF;
-
     -- FIX: Safely calculate mid point offset (ensuring it's at least 1 interval forward)
     v_half_offset := v_expected_count / 2;
     v_half_ts     := p_start + (v_half_offset - 1) * p_interval;

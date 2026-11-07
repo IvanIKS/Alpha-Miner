@@ -95,6 +95,8 @@ def init_db() -> None:
 
     _migrate_backtest_results(engine)
 
+    _migrate_ohlcv(engine)
+
     init_timescale_db(engine)
 
 
@@ -110,6 +112,17 @@ def _migrate_backtest_results(eng: Engine) -> None:
                 conn.execute(text(stmt))
             except Exception as exc:
                 print(f"Migration note: {exc}")
+
+def _migrate_ohlcv(eng: Engine) -> None:
+    with eng.begin() as conn:
+        try:
+            conn.execute(text(
+                "ALTER TABLE ohlcv ADD COLUMN IF NOT EXISTS "
+                "forward_filled BOOLEAN NOT NULL DEFAULT FALSE"
+            ))
+        except Exception as exc:
+            print(f"Migration note: {exc}")
+
 
 def init_timescale_db(engine: Engine) -> None:
     with engine.begin() as connection:
