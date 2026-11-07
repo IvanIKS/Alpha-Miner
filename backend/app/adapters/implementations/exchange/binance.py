@@ -79,6 +79,9 @@ class BinanceAdapter(ExchangeAdapter):
                 if timestamp_ms >= end_time:
                     break
 
+                if timestamp_ms < expected:
+                    continue
+
                 rows.append(self._candle_row(
                     timestamp_ms, symbol, timeframe,
                     open_=candle[1],
