@@ -10,7 +10,10 @@ from app.strategies.Strategy import Strategy
 
 import pandas as pd
 
-class MarketDataProvider:
+class DataProvider:
+    pass
+
+class MarketDataProvider (DataProvider):
     def get_market_data(self, strategy):
         """Build a Context for the given strategy's required symbols/timeframe."""
         raise NotImplementedError("DataProvider is an abstract class. Implement get_market_data in a subclass.")
@@ -42,9 +45,6 @@ class PandasBacktestDataProvider(MarketDataProvider):
 
     def get_asset_prices(self, strategy: Strategy):
         return {self.strategy.symbol : Decimal(self.historical_data.iloc[self.cursor]["close"])}
-
-
-
 
 
 class GapsFoundError(Exception):
@@ -108,3 +108,9 @@ class ShuffledOHLCVDataProvider(OHLCVDataProvider):
     ):
         OHLCVDataProvider.__init__(self, strategy, start_date, end_date, exchange, symbol, timeframe)
         shuffle(self.data)
+
+
+class WebpageDataProvider(DataProvider):
+    def __init__(self, url):
+        self.base_url = url
+
