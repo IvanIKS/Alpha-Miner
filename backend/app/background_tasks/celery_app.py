@@ -13,6 +13,9 @@ celery = Celery(
         "app.background_tasks.tasks.backfill",
         "app.background_tasks.tasks.backtest",
         "app.background_tasks.tasks.prediction",
+        "app.background_tasks.tasks.lab.lab",
+        "app.background_tasks.tasks.lab.arms",
+        "app.background_tasks.tasks.lab.finalize",
     ]
 )
 

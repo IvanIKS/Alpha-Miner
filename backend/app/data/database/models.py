@@ -69,6 +69,74 @@ class BacktestResult(Base):
     buy_and_hold_curve: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
 
 
+class MiningRun(Base):
+    """One alpha-mining comparison: the market/search configuration shared by every arm,
+    plus the comparison summary written by aggregate_comparison when the run finishes."""
+
+    __tablename__ = "mining_runs"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+
+    symbol: Mapped[str] = mapped_column(String(64), nullable=False)
+    exchange: Mapped[str] = mapped_column(String(64), nullable=False)
+    timeframe: Mapped[str] = mapped_column(String(16), nullable=False)
+    start_date: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    end_date: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+    n_search: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    holdout_fraction: Mapped[float] = mapped_column(Float, nullable=False, default=0.25)
+    budget: Mapped[int] = mapped_column(Integer, nullable=False)
+    pop_size: Mapped[int] = mapped_column(Integer, nullable=False, default=30)
+    k: Mapped[int] = mapped_column(Integer, nullable=False, default=10)
+    cost_bps: Mapped[float] = mapped_column(Float, nullable=False, default=12.0)
+    money: Mapped[float] = mapped_column(Float, nullable=False, default=10_000.0)
+
+    model_id: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
+    arms: Mapped[list] = mapped_column(JSON, nullable=False, default=list)
+    seeds: Mapped[list] = mapped_column(JSON, nullable=False, default=list)
+
+    status: Mapped[str] = mapped_column(String(32), nullable=False, server_default="pending")
+    celery_task_id: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    summary: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)
+
+    arm_results: Mapped[List["ArmResult"]] = relationship(
+        back_populates="mining_run", cascade="all, delete-orphan"
+    )
+
+
+class ArmResult(Base):
+    """One arm of a MiningRun (arm, seed): the finalist rule it handed in, the lab.summarize
+    metrics, run cost, and a link to the authoritative BacktestResult of that finalist."""
+
+    __tablename__ = "arm_results"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    mining_run_id: Mapped[int] = mapped_column(
+        ForeignKey("mining_runs.id"), nullable=False, index=True
+    )
+    mining_run: Mapped["MiningRun"] = relationship(back_populates="arm_results")
+
+    arm: Mapped[int] = mapped_column(Integer, nullable=False)
+    arm_name: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
+    seed: Mapped[int] = mapped_column(Integer, nullable=False)
+
+    status: Mapped[str] = mapped_column(String(32), nullable=False, server_default="pending")
+    celery_task_id: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+
+    rule: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    summary: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)
+    minutes: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    model_calls: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    backtests_used: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+
+    backtest_result_id: Mapped[Optional[int]] = mapped_column(
+        ForeignKey("backtest_results.id"), nullable=True
+    )
+
+
 class OHLCV(Base):
     __tablename__ = "ohlcv"
 

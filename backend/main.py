@@ -9,6 +9,7 @@ from app.api.bots import router as bots_router
 from app.api.strategies import router as strategies_router
 from app.api.users import router as users_router
 from app.api.historical_data import router as historical_data_router
+from app.api.mining import router as mining_router
 from app.api.prediction_markets import router as prediction_markets_router
 from app.data.database.session import seed_defaults
 from app.execution.executor.implementation.MultithreadExecutor import MultithreadExecutor
@@ -42,6 +43,7 @@ app.include_router(backtest_run_router, dependencies=[Depends(require_auth)])
 
 app.include_router(historical_data_router, dependencies=[Depends(require_auth)])
 app.include_router(prediction_markets_router, dependencies=[Depends(require_auth)])
+app.include_router(mining_router, dependencies=[Depends(require_auth)])
 
 @app.get("/", dependencies=[Depends(require_auth)])
 async def root():
