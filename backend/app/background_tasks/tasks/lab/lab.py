@@ -27,14 +27,29 @@ from app.data.database.session import db_session, engine
 
 # Defaults mirror strategies_comparison.ipynb. Dates are ISO strings so they survive the broker.
 DEFAULTS = {
-    "symbol": "BTC/USDT", "exchange": "binance", "timeframe": "1h",
-    "start_date": "2022-01-01T00:00:00+00:00", "end_date": "2026-10-01T00:00:00+00:00",
-    "holdout_fraction": 0.25, "budget": 2000, "pop_size": 30, "k": 10,
-    "cost_bps": 12.0, "money": 10_000.0, "model_id": "claude-haiku-5-5",
-    "arms": [1, 2, 3, 4, 5], "seeds": [0],
-    # Arm 5 (GP + Optuna) searches structure x trials, so the notebook gives it 25x the
-    # per-arm backtest budget; applied in run_arm._effective_budget.
-    "arm5_budget_multiplier": 25,
+    "symbol": "BTC/USDT",
+    "exchange": "binance",
+    "timeframe": "1h",
+    "start_date": "2022-01-01T00:00:00+00:00",
+    "end_date": "2026-10-01T00:00:00+00:00",
+    "holdout_fraction": 0.25,
+    "budget": 2000,
+    "pop_size": 30,
+    "k": 10,
+    "cost_bps": 12.0,
+    "money": 10_000.0,
+    "model_id": "claude-haiku-5-5",
+    "arms": [1, 2, 3, 4, 5],
+    "seeds": [0],
+    # Arms have different run times per iteration. These coefficients are configured empirycally
+    # to make the runs finish in ~30 minutes on budget = 2000.
+    "budget_multipliers" : {
+        "arm1" : 1,
+        "arm2" : 2,
+        "arm3" : 3.5,
+        "arm4" : 1.5,
+        "arm5": 21
+    }
 }
 
 # Summary metrics lifted from each ArmResult.summary into the run's comparison table.
@@ -79,7 +94,7 @@ def compare_strategy_mining(self, config=None):
     members = []
     for arm in arms:
         for seed in seeds:
-            sig = run_arm.s(run_id, arm, seed, cfg)
+            sig = run_arm.si(run_id, arm, seed, cfg)
             if arm in CALIBRATION_ARMS:
                 sig |= calibrate_finalist.s()
             sig |= backtest_finalist.s()

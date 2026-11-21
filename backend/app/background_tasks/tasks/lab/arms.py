@@ -8,6 +8,7 @@ The arm entry points and their call signatures mirror strategies_comparison.ipyn
 from __future__ import annotations
 
 import time
+from pathlib import Path
 
 from celery import shared_task
 from sqlalchemy import select
@@ -20,8 +21,9 @@ import app.strategies.genetic.experiment.arm5_demo_gp_optuna as arm5_demo_gp_opt
 import app.strategies.genetic.llm.lab as lab
 import app.strategies.genetic.llm.llm_models as lm
 import app.strategies.genetic.platform_bridge as pb
+from app.background_tasks import retry
 from app.background_tasks.tasks.backtest import approximate_wait_time
-from app.background_tasks.tasks.lab.finalize import _build_data, _json_safe
+from app.background_tasks.tasks.lab.finalize import _build_data, _json_safe, persist_ledger_backtests
 from app.data.data_provider import GapsFoundError
 from app.data.database.models import ArmResult
 from app.data.database.session import db_session
@@ -37,11 +39,19 @@ LLM_ARMS = {1, 2, 3, 4}            # need a ChatModel built in the worker
 CALIBRATION_ARMS = {3, 4, 5}       # get the extra Optuna calibrate_finalist step
 
 
+def _model_log_path(run_id, arm, seed) -> Path:
+    """Stable per-(run, arm, seed) JSONL log for the arm's LLM calls. Anchored to the llm
+    package's runs/ dir so it is the same across a worker's retries regardless of CWD. A
+    retried arm resumes from this log (RecordedModel resume mode) instead of paying for the
+    calls again; only the interrupted/new calls reach the API."""
+    return Path(lm.__file__).parent / "runs" / f"mining-run-{run_id}" / f"arm{arm}_seed{seed}.jsonl"
+
+
 def _effective_budget(arm, cfg):
-    """Arm 5 gets `arm5_budget_multiplier`x the per-arm budget, as in the notebook."""
-    if arm == 5:
-        return cfg["budget"] * int(cfg.get("arm5_budget_multiplier", 25))
-    return cfg["budget"]
+    """Scale the per-arm budget by that arm's `budget_multipliers` coefficient. The coefficients
+    are tuned empirically so every arm finishes in roughly the same wall-clock time."""
+    multiplier = cfg.get("budget_multipliers", {}).get(f"arm{arm}", 1)
+    return int(cfg["budget"] * multiplier)
 
 
 def _run_search(arm, data, cfg, model):
@@ -105,11 +115,20 @@ def run_arm(self, run_id, arm, seed, config):
     cfg["n_search"] = n_search
     cfg["budget"] = _effective_budget(arm, cfg)
 
-    model = lm.ClaudeModel(cfg["model_id"]) if arm in LLM_ARMS else None
+    model = None
+    if arm in LLM_ARMS:
+        # Resume from the log so a retried arm replays the calls made before the connection
+        # dropped (free) and only re-issues the interrupted/remaining ones.
+        model = lm.RecordedModel(lm.ClaudeModel(cfg["model_id"]),
+                                 _model_log_path(run_id, arm, seed), mode="resume")
 
     started = time.perf_counter()
     try:
         ledger, model_calls = _run_search(arm, data, cfg, model)
+    except retry.connection_errors() as exc:
+        # Unstable connection to the LLM mid-search: wait and retry the whole arm.
+        countdown = retry.retry_countdown(self.request.retries)
+        raise self.retry(exc=exc, countdown=countdown)
     except Exception:
         with db_session() as db:
             ar = db.get(ArmResult, arm_result_id) if arm_result_id else None
@@ -120,6 +139,9 @@ def run_arm(self, run_id, arm, seed, config):
 
     summary = lab.summarize(data, ledger)
     rule = summary.get("rule")
+
+    # Persist one BacktestResult per distinct rule the search backtested (not probes).
+    saved = persist_ledger_backtests(ledger, {**cfg, "rule": rule}, cfg["money"])
 
     with db_session() as db:
         ar = db.get(ArmResult, arm_result_id) if arm_result_id else None
@@ -133,7 +155,7 @@ def run_arm(self, run_id, arm, seed, config):
 
     return {
         "run_id": run_id, "arm": arm, "seed": seed, "arm_result_id": arm_result_id,
-        "rule": rule,
+        "rule": rule, "ledger_backtests_saved": saved,
         "symbol": cfg["symbol"], "exchange": cfg["exchange"], "timeframe": cfg["timeframe"],
         "start_date": cfg["start_date"], "end_date": cfg["end_date"],
         "n_search": n_search, "budget": cfg["budget"], "k": cfg["k"],

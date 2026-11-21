@@ -17,3 +17,4 @@ deap>=1.4.3
 openai>=0.28.0
 anthropic>=1.17.0
 httpx>=1.0.dev1
+optuna>=5.1.0

@@ -59,6 +59,67 @@ def _build_data(symbol: str, exchange: str, timeframe: str, start, end):
     return data, stamps
 
 
+def _strategy_name(payload) -> str:
+    """One Strategy per (run, arm, seed); its finalist and every distinct ledger rule hang off it."""
+    return f"mining-run-{payload['run_id']}-arm{payload['arm']}-seed{payload['seed']}"
+
+
+def _dataset_name(payload) -> str:
+    return (f"{payload['symbol']}_{payload['exchange']}_{payload['timeframe']}"
+            f"_{payload['start_date']}_{payload['end_date']}")
+
+
+def _get_or_create_strategy(db, name, description):
+    """Get the StrategyModel named `name`, creating and flushing it (for its id) if absent.
+    A non-None description refreshes the stored one (the arm's finalist rule)."""
+    strat = db.execute(
+        select(StrategyModel).where(StrategyModel.name == name)
+    ).scalar_one_or_none()
+    if strat is None:
+        strat = StrategyModel(name=name, description=description)
+        db.add(strat)
+        db.flush()
+    elif description is not None:
+        strat.description = description
+    return strat
+
+
+def persist_ledger_backtests(ledger, ctx, money) -> int:
+    """Save one BacktestResult per distinct rule the arm's search backtested -- every ledger row
+    that is a real candidate/trial, not a verifier probe (dozens-to-hundreds per arm). The
+    metrics are the search-window statistics the ledger already computed during the search, so
+    no rule is re-run here; all rows hang off one Strategy per (run, arm, seed). `ctx` carries
+    run_id/arm/seed, the market key and the finalist `rule`. Returns the number of rows written."""
+    import numpy as np
+
+    rows = [r for r in ledger.rows.values() if r["role"] != "probe"]
+    if not rows:
+        return 0
+
+    dataset_name = _dataset_name(ctx)
+    with db_session() as db:
+        strat = _get_or_create_strategy(db, _strategy_name(ctx), ctx.get("rule"))
+        strategy_id = strat.id
+        for row in rows:
+            s = row["stats"]
+            search = s["search"]
+            results = json.dumps(_json_safe({
+                "rule": row["key"], "role": row["role"],
+                "sharpe_ratio": search["sharpe"],
+                "overall_profit_percent": search["ret"] * 100.0,
+                "max_drawdown_percent": search["mdd"] * 100.0,
+                "exposure": search["exposure"], "trades": search["trades"],
+                "train sharpe": s["train"]["sharpe"], "train trades": s["train"]["trades"],
+                "val sharpe": s["val"]["sharpe"], "val trades": s["val"]["trades"],
+            }))
+            equity = (money * np.cumprod(1.0 + ledger.returns(row))).tolist()
+            db.add(BacktestResult(
+                strategy_id=strategy_id, dataset_name=dataset_name, status="done",
+                results=results, equity_curve=json.dumps(_downsample(equity)),
+            ))
+    return len(rows)
+
+
 @shared_task(bind=True, name="calibrate_finalist", max_retries=5)
 def calibrate_finalist(self, payload):
     """Re-tune the finalist's free numbers with Optuna (arms 3/4/5). Passthrough when there is
@@ -108,20 +169,10 @@ def backtest_finalist(self, payload):
         wait = sum(approximate_wait_time(g[0], g[1], exc.timeframe) for g in exc.gaps)
         raise self.retry(exc=exc, countdown=wait)
 
-    name = f"mining-run-{payload['run_id']}-arm{payload['arm']}-seed{payload['seed']}"
-    dataset_name = f"{symbol}_{exchange}_{timeframe}_{payload['start_date']}_{payload['end_date']}"
     with db_session() as db:
-        strat = db.execute(
-            select(StrategyModel).where(StrategyModel.name == name)
-        ).scalar_one_or_none()
-        if strat is None:
-            strat = StrategyModel(name=name, description=rule)
-            db.add(strat)
-            db.flush()
-        else:
-            strat.description = rule
+        strat = _get_or_create_strategy(db, _strategy_name(payload), rule)
         backtest = BacktestResult(
-            strategy_id=strat.id, dataset_name=dataset_name,
+            strategy_id=strat.id, dataset_name=_dataset_name(payload),
             status="running", celery_task_id=self.request.id,
         )
         db.add(backtest)
