@@ -160,4 +160,7 @@ def run_arm(self, run_id, arm, seed, config):
         "start_date": cfg["start_date"], "end_date": cfg["end_date"],
         "n_search": n_search, "budget": cfg["budget"], "k": cfg["k"],
         "cost_bps": cfg["cost_bps"], "money": cfg["money"],
+        "buy_commission": cfg.get("buy_commission", 0.0),
+        "sell_commission": cfg.get("sell_commission", 0.0),
+        "slippage_percent": cfg.get("slippage_percent", 1.0),
     }

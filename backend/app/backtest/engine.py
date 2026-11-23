@@ -123,13 +123,13 @@ class BacktestResult:
 
 
 class BacktestEngine:
-    def run(self, strategy, data_provider, money_amount):
+    def run(self, strategy, data_provider, money_amount, commission=None, slippage=None):
         from app.execution.execution_engine import BacktestExecutionEngine
         from app.portfolio.PortfolioProvider import BacktestPortfolioProvider
         from app.execution.bot import Bot
 
         portfolio_provider = BacktestPortfolioProvider(quantity=money_amount)
-        execution_engine = BacktestExecutionEngine()
+        execution_engine = BacktestExecutionEngine(commission=commission, slippage=slippage)
 
         bot = Bot(
             name="backtest_bot",

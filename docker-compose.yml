@@ -37,7 +37,7 @@ services:
   worker:
     build: 
       context: ./backend
-    command: celery -A app.background_tasks.celery_app worker --loglevel=info --concurrency=5
+    command: celery -A app.background_tasks.celery_app worker --loglevel=info --concurrency=12
     env_file:
       - ./backend/.env
     environment:

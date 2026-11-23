@@ -17,6 +17,7 @@ import app.strategies.genetic.llm.lab as lab
 import app.strategies.genetic.platform_bridge as pb
 import app.strategies.genetic.strategy_gp as sg
 from app.backtest.engine import BacktestEngine
+from app.background_tasks.tasks.lab.costs import build_cost_models
 from app.background_tasks.tasks.backtest import (
     _compute_buy_and_hold,
     _downsample,
@@ -179,8 +180,9 @@ def backtest_finalist(self, payload):
         db.flush()
         backtest_id = backtest.id
 
+    commission, slippage = build_cost_models(payload)
     engine = BacktestEngine()
-    result = engine.run(strategy, provider, money)
+    result = engine.run(strategy, provider, money, commission=commission, slippage=slippage)
     buy_and_hold = _compute_buy_and_hold(provider, money)
     result.buy_and_hold_curve = buy_and_hold
 

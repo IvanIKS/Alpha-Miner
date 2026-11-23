@@ -20,6 +20,7 @@ from sqlalchemy import select
 
 from app.background_tasks.tasks.backfill import backfill_ohlcv_task
 from app.background_tasks.tasks.lab.arms import ARM_NAMES, CALIBRATION_ARMS, run_arm
+from app.background_tasks.tasks.lab.costs import build_cost_models, effective_cost_bps
 from app.background_tasks.tasks.lab.finalize import _as_dt, backtest_finalist, calibrate_finalist
 from app.data.database.base import Base
 from app.data.database.models import ArmResult, MiningRun
@@ -36,7 +37,13 @@ DEFAULTS = {
     "budget": 2000,
     "pop_size": 30,
     "k": 10,
-    "cost_bps": 12.0,
+    # Commission and slippage drive both backtests: the vectorised search charges their combined
+    # per-side cost as cost_bps (derived below), and the finalist BacktestEngine runs the same
+    # Commission/SimpleSlippage instances order by order (see tasks.lab.costs).
+    "buy_commission": 0.0,      # percent per side
+    "sell_commission": 0.0,     # percent per side
+    "slippage_percent": 1.0,    # percent of price per side (1.0 == SimpleSlippage's 1% default)
+    "cost_bps": 12.0,           # derived from commission + slippage unless passed explicitly
     "money": 10_000.0,
     "model_id": "claude-haiku-5-5",
     "arms": [1, 2, 3, 4, 5],
@@ -46,9 +53,9 @@ DEFAULTS = {
     "budget_multipliers" : {
         "arm1" : 1,
         "arm2" : 2,
-        "arm3" : 3.5,
+        "arm3" : 2.7,
         "arm4" : 1.5,
-        "arm5": 21
+        "arm5": 25
     }
 }
 
@@ -69,10 +76,17 @@ def compare_strategy_mining(self, config=None):
     """Launch the full comparison. `config` overrides any of DEFAULTS. Returns the run id;
     does not block on the arms."""
     _ensure_tables()
-    cfg = {**DEFAULTS, **(config or {})}
+    raw = config or {}
+    cfg = {**DEFAULTS, **raw}
     arms = [int(a) for a in cfg["arms"]]
     seeds = [int(s) for s in cfg["seeds"]]
     cfg["arms"], cfg["seeds"] = arms, seeds
+
+    # Derive the search's per-side cost from the commission and slippage models so the fast search
+    # and the finalist full backtest charge the same thing. An explicit cost_bps override wins.
+    if "cost_bps" not in raw:
+        commission, slippage = build_cost_models(cfg)
+        cfg["cost_bps"] = effective_cost_bps(commission, slippage)
 
     with db_session() as db:
         run = MiningRun(

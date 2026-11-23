@@ -26,7 +26,10 @@ class CompareRequest(BaseModel):
     budget: Optional[int] = None
     pop_size: Optional[int] = None
     k: Optional[int] = None
-    cost_bps: Optional[float] = None
+    buy_commission: Optional[float] = None      # percent per side
+    sell_commission: Optional[float] = None     # percent per side
+    slippage_percent: Optional[float] = None    # percent of price per side
+    cost_bps: Optional[float] = None            # derived from commission + slippage if omitted
     money: Optional[float] = None
     model_id: Optional[str] = None
     arms: Optional[list[int]] = None

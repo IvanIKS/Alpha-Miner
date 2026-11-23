@@ -8,5 +8,9 @@ class Slippage:
         pass
 
 class SimpleSlippage(Slippage):
+    def __init__(self, rate=0.01):
+        super().__init__()
+        self.rate = rate
+
     def calculate(self, order : Order) -> Decimal:
-        return Decimal(order.price * 0.01)
+        return Decimal(order.price * self.rate)
